@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment and secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Logs and debug
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Vite / tooling cache
+.vite/
+.cache/
+*.tsbuildinfo
+
+# Test coverage
+coverage/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# Editors / IDEs
+.idea/
+*.swp
+*.swo
+
+# Optional: local VS Code settings (uncomment if you prefer not to share)
+# .vscode/
+
+# Misc
+*.pem
+.turbo/
