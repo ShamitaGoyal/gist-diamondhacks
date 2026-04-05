@@ -11,26 +11,6 @@ export interface TreeNode {
   depth?: number;
 }
 
-const nodes: TreeNode[] = [
-  {
-    id: "root",
-    label: "Meridian framework",
-    sublabel: "Abstract · Intro",
-    sectionId: "abstract",
-    depth: 0,
-    childrenIds: ["spec", "content"],
-  },
-  { id: "spec", label: "Specification", sublabel: "language §3", sectionId: "spec-lang", depth: 1, childrenIds: ["stake"] },
-  { id: "content", label: "Content · Layout", sublabel: "Composition", sectionId: "intro", depth: 1, childrenIds: ["stake"] },
-  { id: "stake", label: "Three stakeholders", sublabel: "§4", sectionId: "stakeholders", depth: 2, childrenIds: ["malleable", "what", "tools"] },
-  { id: "malleable", label: "Malleable ODIs", sublabel: "§2", sectionId: "what-odi", depth: 3, childrenIds: ["impl"] },
-  { id: "what", label: "What are ODIs?", sublabel: "§1–2", sectionId: "what-odi", depth: 3, childrenIds: [] },
-  { id: "tools", label: "Open-source tools", sublabel: "§5", sectionId: "tools", depth: 3, childrenIds: ["eval"] },
-  { id: "impl", label: "Implementation", sublabel: "§6", sectionId: "tools", depth: 4, childrenIds: ["conclusion"] },
-  { id: "eval", label: "Evaluation", sublabel: "§7", sectionId: "tools", depth: 4, childrenIds: ["conclusion"] },
-  { id: "conclusion", label: "Conclusion", sublabel: "", sectionId: "tools", depth: 5, childrenIds: [] },
-];
-
 type ViewMode = "tree" | "radial" | "list" | "mindmap";
 
 const viewModes: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
@@ -43,7 +23,9 @@ const viewModes: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
 interface ArchitectureTabProps {
   activeSectionId: string | null;
   onNodeClick: (sectionId: string) => void;
-  /** When set, replaces static Meridian demo graph (from /api/v2/architecture) */
+  /** Offline / pre-fetch structure; also defines labels when API graph is absent */
+  fallbackNodes: TreeNode[];
+  fallbackTitle: string;
   archNodesFromApi?: TreeNode[] | null;
   archTitleFromApi?: string | null;
   archLoading?: boolean;
@@ -335,6 +317,8 @@ function DynamicTreeView({
 const ArchitectureTab = ({
   activeSectionId,
   onNodeClick,
+  fallbackNodes,
+  fallbackTitle,
   archNodesFromApi,
   archTitleFromApi,
   archLoading,
@@ -346,7 +330,7 @@ const ArchitectureTab = ({
 
   const isActive = (node: TreeNode) => activeSectionId === node.sectionId;
 
-  const baseNodes = useApi ? archNodesFromApi! : nodes;
+  const baseNodes = useApi ? archNodesFromApi! : fallbackNodes;
   const filtered = search
     ? baseNodes.filter(
         (n) =>
@@ -357,13 +341,14 @@ const ArchitectureTab = ({
 
   const filteredIds = new Set(filtered.map((n) => n.id));
 
-  const effectiveView: ViewMode =
-    useApi && (viewMode === "radial" || viewMode === "mindmap") ? "list" : viewMode;
+  const effectiveView: ViewMode = viewMode;
+
+  const architectureTitle = archTitleFromApi ?? fallbackTitle;
 
   return (
     <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5">
-      {archTitleFromApi ? (
-        <p className="text-[11px] font-medium text-accent-dark leading-snug px-0.5">{archTitleFromApi}</p>
+      {architectureTitle ? (
+        <p className="text-[11px] font-medium text-accent-dark leading-snug px-0.5">{architectureTitle}</p>
       ) : null}
       {archError ? (
         <p className="text-[11px] text-destructive bg-destructive/10 rounded-md px-2 py-1.5">{archError}</p>
@@ -392,12 +377,11 @@ const ArchitectureTab = ({
           <button
             key={mode.id}
             onClick={() => setViewMode(mode.id)}
-            disabled={useApi && (mode.id === "radial" || mode.id === "mindmap")}
             className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-md text-[10px] font-medium transition-all cursor-pointer ${
               effectiveView === mode.id
                 ? "bg-surface border border-border shadow-sm text-foreground"
                 : "text-text-tertiary hover:text-text-secondary"
-            } disabled:opacity-40 disabled:cursor-not-allowed`}
+            }`}
           >
             {mode.icon}
             {mode.label}
@@ -435,8 +419,8 @@ const ArchitectureTab = ({
 function RadialView({ nodes, isActive, onNodeClick }: { nodes: TreeNode[]; isActive: (n: TreeNode) => boolean; onNodeClick: (id: string) => void }) {
   const center = { x: 160, y: 170 };
   const radius = 120;
-  const rootNode = nodes.find(n => n.id === "root");
-  const otherNodes = nodes.filter(n => n.id !== "root");
+  const rootNode = nodes.find((n) => n.id === "root") ?? nodes[0];
+  const otherNodes = rootNode ? nodes.filter((n) => n.id !== rootNode.id) : [];
 
   return (
     <svg viewBox="0 0 320 340" className="w-full">
@@ -514,15 +498,17 @@ function ListView({ nodes, isActive, onNodeClick, activeSectionId }: { nodes: Tr
 // ── Mind Map View ──
 function MindMapView({ nodes, isActive, onNodeClick }: { nodes: TreeNode[]; isActive: (n: TreeNode) => boolean; onNodeClick: (id: string) => void }) {
   const center = { x: 160, y: 180 };
-  const rootNode = nodes.find(n => n.id === "root");
-  const rightNodes = nodes.filter(n => ["spec", "what", "stake"].includes(n.id));
-  const leftNodes = nodes.filter(n => ["malleable", "tools", "impl", "eval", "conclusion"].includes(n.id));
-  const topNodes = nodes.filter(n => n.id === "content");
+  const rootNode = nodes.find((n) => n.id === "root") ?? nodes[0];
+  const others = rootNode ? nodes.filter((n) => n.id !== rootNode.id) : [];
+  const third = Math.max(1, Math.ceil(others.length / 3));
+  const leftNodes = others.slice(0, third);
+  const topNodes = others.slice(third, third * 2);
+  const rightNodes = others.slice(third * 2);
 
   const allBranches = [
-    ...rightNodes.map((n, i) => ({ node: n, x: center.x + 100, y: center.y - 50 + i * 45 })),
-    ...leftNodes.map((n, i) => ({ node: n, x: center.x - 100, y: center.y - 20 + i * 40 })),
-    ...topNodes.map((n) => ({ node: n, x: center.x, y: center.y - 100 })),
+    ...leftNodes.map((n, i) => ({ node: n, x: center.x - 100, y: center.y - 20 + i * 42 })),
+    ...topNodes.map((n, i) => ({ node: n, x: center.x - 55 + i * 55, y: center.y - 100 })),
+    ...rightNodes.map((n, i) => ({ node: n, x: center.x + 100, y: center.y - 30 + i * 42 })),
   ];
 
   return (
@@ -549,8 +535,12 @@ function MindMapView({ nodes, isActive, onNodeClick }: { nodes: TreeNode[]; isAc
             fill={isActive(rootNode) ? "hsl(var(--accent-mid))" : "hsl(var(--accent-light))"}
             stroke={isActive(rootNode) ? "hsl(var(--accent-dark))" : "hsl(var(--accent-mid))"}
             strokeWidth="2" />
-          <text x={center.x} y={center.y - 3} textAnchor="middle" fontSize="9" fontWeight="600" fill={isActive(rootNode) ? "hsl(var(--primary-foreground))" : "hsl(var(--accent-dark))"}>{rootNode.label.split(" ")[0]}</text>
-          <text x={center.x} y={center.y + 9} textAnchor="middle" fontSize="7.5" fill={isActive(rootNode) ? "hsl(var(--primary-foreground))" : "hsl(var(--text-tertiary))"}>framework</text>
+          <text x={center.x} y={center.y - 3} textAnchor="middle" fontSize="9" fontWeight="600" fill={isActive(rootNode) ? "hsl(var(--primary-foreground))" : "hsl(var(--accent-dark))"}>
+            {(rootNode.label.split(" ").slice(0, 2).join(" ") || rootNode.label).slice(0, 22)}
+          </text>
+          <text x={center.x} y={center.y + 9} textAnchor="middle" fontSize="7.5" fill={isActive(rootNode) ? "hsl(var(--primary-foreground))" : "hsl(var(--text-tertiary))"}>
+            {(rootNode.sublabel || rootNode.label.split(" ").slice(2).join(" ") || "·").slice(0, 28)}
+          </text>
         </g>
       )}
       {/* Branch nodes */}

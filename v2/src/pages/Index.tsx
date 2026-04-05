@@ -1,92 +1,18 @@
 import { useState, useCallback, useRef, useMemo, useEffect, type ReactNode } from "react";
 import PDFPane from "@/components/pdf-lens/PDFPane";
+import PdfReaderPane from "@/components/pdf-lens/PdfReaderPane";
 import SidePanel from "@/components/pdf-lens/SidePanel";
 import type { ExplainVisualPayload } from "@/lib/pdfLensApi";
 import type { TreeNode } from "@/components/pdf-lens/ArchitectureTab";
 import { fetchExplain, fetchArchitecture, type ArchApiNode } from "@/lib/pdfLensApi";
-
-const sections = [
-  {
-    id: "abstract",
-    title: "Abstract",
-    paragraphs: [
-      {
-        text: "We present overview-detail interfaces (ODIs) as a foundational pattern in modern information systems. ODIs support a fundamental user behavior: scanning a broad collection to identify items of interest, then examining them in depth. They appear in email clients, calendars, shopping websites, and food delivery applications.",
-        highlights: [{ text: "overview-detail interfaces (ODIs)", id: "hl-odi" }],
-      },
-    ],
-  },
-  {
-    id: "intro",
-    title: "1. Introduction",
-    paragraphs: [
-      {
-        text: "Information systems increasingly demand interfaces that balance breadth with depth. ODIs serve this need by pairing a scannable overview pane with a coordinated detail view. The challenge lies in designing these interfaces to be both expressive and adaptable across contexts.",
-        highlights: [],
-      },
-      {
-        text: "The Meridian Framework proposes a specification language that separates content, composition, and layout into distinct, composable concerns — enabling a new class of malleable, stakeholder-aware interfaces.",
-        highlights: [{ text: "The Meridian Framework proposes a specification language", id: "hl-meridian" }],
-      },
-    ],
-  },
-  {
-    id: "what-odi",
-    title: "2. What are ODIs?",
-    paragraphs: [
-      {
-        text: "An overview-detail interface presents two coordinated views: a compact overview of a collection, and a detailed view of a selected item. The overview enables rapid scanning; the detail enables deep inspection. Selection in the overview drives the detail.",
-        highlights: [],
-      },
-      {
-        text: "Malleable ODIs allow reconfiguration by multiple stakeholders without modifying the underlying data model. This separates concerns cleanly: data owners control structure, designers control presentation, users control layout preferences.",
-        highlights: [{ text: "Malleable ODIs allow reconfiguration", id: "hl-malleable" }],
-      },
-    ],
-  },
-  {
-    id: "spec-lang",
-    title: "3. The Specification Language",
-    paragraphs: [
-      {
-        text: "Meridian's specification language describes interfaces declaratively. A Meridian spec defines: (1) the data bindings connecting content to interface elements, (2) the compositional rules governing how overview and detail are assembled, and (3) the layout constraints that determine spatial arrangement.",
-        highlights: [],
-      },
-      {
-        text: "Developers define data bindings. Designers specify visual composition. End users adjust layout preferences. Each operates independently within Meridian's layered model.",
-        highlights: [],
-      },
-    ],
-  },
-  {
-    id: "stakeholders",
-    title: "4. Three Stakeholders",
-    paragraphs: [
-      {
-        text: "Meridian identifies three stakeholders with distinct, non-overlapping roles. The developer owns data and logic. The designer owns visual structure and composition. The end user owns personal layout preferences and display density.",
-        highlights: [],
-      },
-      {
-        text: "The model ensures changes by one party do not break work done by others. This is Meridian's central contribution to malleable interface design.",
-        highlights: [],
-      },
-    ],
-  },
-  {
-    id: "tools",
-    title: "5. Open-Source Tools",
-    paragraphs: [
-      {
-        text: "We release Meridian as open-source. The release includes a CLI compiler that transforms Meridian specs into runtime components, a visual editor for designers, and a browser runtime library. All tools are available at the project repository.",
-        highlights: [],
-      },
-      {
-        text: "Adoption in both research prototypes and production deployments demonstrates Meridian's practical viability across scales.",
-        highlights: [],
-      },
-    ],
-  },
-];
+import {
+  SAMPLE_PAPERS,
+  getPaperById,
+  buildPageArchitectureNodes,
+  type SamplePaperId,
+  type PaperSection,
+} from "@/data/samplePapers";
+import { extractFullTextFromPdf } from "@/lib/extractPdfText";
 
 const ODIVisual = () => (
   <svg viewBox="0 0 280 180" className="w-full max-w-[260px]">
@@ -211,7 +137,7 @@ const staticExplanations: Record<string, ExplanationShape> = {
   },
 };
 
-function findBuiltInHighlightText(highlightId: string): string | null {
+function findBuiltInHighlightText(sections: PaperSection[], highlightId: string): string | null {
   for (const s of sections) {
     for (const p of s.paragraphs) {
       const hl = p.highlights?.find((h) => h.id === highlightId);
@@ -244,6 +170,10 @@ interface UserHighlight {
 }
 
 const Index = () => {
+  const [paperId, setPaperId] = useState<SamplePaperId>("meridian");
+  const activePaper = useMemo(() => getPaperById(paperId), [paperId]);
+  const sections = activePaper.sections;
+
   const [activeHighlight, setActiveHighlight] = useState<string | null>(null);
   const [selectionPreview, setSelectionPreview] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -262,22 +192,83 @@ const Index = () => {
   const [archTitleFromApi, setArchTitleFromApi] = useState<string | null>(null);
   const [archLoading, setArchLoading] = useState(false);
   const [archError, setArchError] = useState<string | null>(null);
+  const [pdfNumPages, setPdfNumPages] = useState(0);
+  const [pdfExtractedText, setPdfExtractedText] = useState<string | null>(null);
 
   const highlightCounter = useRef(0);
   const pdfScrollRef = useRef<HTMLDivElement>(null);
   const archFetchedRef = useRef(false);
 
-  const sectionIds = useMemo(() => sections.map((s) => s.id), []);
-
-  const paperContext = useMemo(
+  const sectionsFallbackText = useMemo(
     () =>
       sections
         .map((s) => `${s.title}\n\n${s.paragraphs.map((p) => p.text).join("\n\n")}`)
         .join("\n\n---\n\n"),
-    []
+    [sections]
   );
 
+  const paperContext =
+    activePaper.pdfPublicUrl != null ? (pdfExtractedText ?? sectionsFallbackText) : sectionsFallbackText;
+
   const paperTextForArch = useMemo(() => paperContext.slice(0, 12000), [paperContext]);
+
+  const sectionIds = useMemo(() => {
+    if (activePaper.pdfPublicUrl) {
+      const n = pdfNumPages > 0 ? pdfNumPages : activePaper.pageCount;
+      return Array.from({ length: Math.max(1, n) }, (_, i) => `page-${i + 1}`);
+    }
+    return sections.map((s) => s.id);
+  }, [activePaper.pdfPublicUrl, activePaper.pageCount, pdfNumPages, sections]);
+
+  const architectureFallbackNodes = useMemo(() => {
+    if (activePaper.pdfPublicUrl) {
+      const n = pdfNumPages > 0 ? pdfNumPages : activePaper.pageCount;
+      return buildPageArchitectureNodes(n, "Moosaei et al. · facial paralysis modeling (FG’19)");
+    }
+    return activePaper.architectureFallbackNodes;
+  }, [activePaper.pdfPublicUrl, activePaper.pageCount, activePaper.architectureFallbackNodes, pdfNumPages]);
+
+  useEffect(() => {
+    archFetchedRef.current = false;
+    setUserHighlights([]);
+    setActiveHighlight(null);
+    setSelectionPreview(null);
+    setExplanation(null);
+    setUserSelection(null);
+    setChatInitialMessage(null);
+    setActiveSectionId(null);
+    setArchNodesFromApi(null);
+    setArchTitleFromApi(null);
+    setArchError(null);
+    setArchLoading(false);
+    highlightCounter.current = 0;
+    setPdfNumPages(0);
+    setPdfExtractedText(null);
+  }, [paperId]);
+
+  useEffect(() => {
+    if (!activePaper.pdfPublicUrl) {
+      setPdfExtractedText(null);
+      return;
+    }
+    let cancelled = false;
+    setPdfExtractedText(null);
+    (async () => {
+      try {
+        const { text } = await extractFullTextFromPdf(activePaper.pdfPublicUrl);
+        if (!cancelled) setPdfExtractedText(text);
+      } catch {
+        if (!cancelled) setPdfExtractedText(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activePaper.pdfPublicUrl]);
+
+  useEffect(() => {
+    archFetchedRef.current = false;
+  }, [paperTextForArch]);
 
   useEffect(() => {
     if (activeTab !== "architecture" || archFetchedRef.current) return;
@@ -308,7 +299,7 @@ const Index = () => {
       cancelled = true;
       if (!completed) archFetchedRef.current = false;
     };
-  }, [activeTab, paperTextForArch, sectionIds]);
+  }, [activeTab, paperTextForArch, sectionIds, paperId]);
 
   const runExplain = useCallback(async (snippet: string, staticFallbackId: string | null) => {
     const trimmed = snippet.trim();
@@ -344,11 +335,11 @@ const Index = () => {
   const handleHighlightClick = useCallback(
     async (id: string, text: string) => {
       setActiveHighlight(id);
-      const snippet = text.trim() || findBuiltInHighlightText(id) || "";
+      const snippet = text.trim() || findBuiltInHighlightText(sections, id) || "";
       const fallback = id in staticExplanations ? id : null;
       await runExplain(snippet, fallback);
     },
-    [runExplain]
+    [runExplain, sections]
   );
 
   const addUserHighlight = useCallback((text: string, sectionId: string, paragraphIndex: number): string => {
@@ -406,10 +397,12 @@ const Index = () => {
 
   const handleNodeClick = useCallback((sectionId: string) => {
     setActiveSectionId(sectionId);
-    const el = document.getElementById(`section-${sectionId}`);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    const pageMatch = /^page-(\d+)$/.exec(sectionId);
+    if (pageMatch) {
+      document.getElementById(`pdf-page-${pageMatch[1]}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
     }
+    document.getElementById(`section-${sectionId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
   const handleScrollSection = useCallback((sectionId: string) => {
@@ -418,29 +411,66 @@ const Index = () => {
 
   const activeSection =
     activeSectionId ||
-    (activeHighlight
-      ? sections.find((s) => s.paragraphs.some((p) => p.highlights?.some((h) => h.id === activeHighlight)))?.id ||
+    (!activePaper.pdfPublicUrl && activeHighlight
+      ? sections.find((s) => s.paragraphs.some((p) => p.highlights?.some((h) => h.id === activeHighlight)))?.id ??
         null
       : null);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-background">
-      <div className="flex w-full max-w-[1100px] h-[82vh] min-h-[580px] max-h-[800px] rounded-lg overflow-hidden border border-border-strong shadow-md">
-        <PDFPane
-          sections={sections}
-          activeSection={activeSection}
-          activeHighlight={activeHighlight}
-          onHighlightClick={handleHighlightClick}
-          onTextSelection={handleTextSelection}
-          userSelection={userSelection}
-          onExplainSelection={handleUserExplain}
-          onChatSelection={handleUserChat}
-          onClearSelection={handleClearSelection}
-          onScrollSection={handleScrollSection}
-          scrollRef={pdfScrollRef}
-          userHighlights={userHighlights}
-          onRemoveHighlight={handleRemoveHighlight}
-        />
+      <div className="flex flex-col w-full max-w-[1100px] h-[82vh] min-h-[580px] max-h-[800px] rounded-lg overflow-hidden border border-border-strong shadow-md">
+        <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border bg-surface-2/80">
+          <span className="text-[11px] font-medium text-text-secondary uppercase tracking-wide">Sample PDF</span>
+          <div className="flex rounded-lg border border-border bg-background p-0.5 gap-0.5">
+            {SAMPLE_PAPERS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPaperId(p.id)}
+                className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
+                  paperId === p.id
+                    ? "bg-accent-mid text-primary-foreground shadow-sm"
+                    : "text-text-secondary hover:text-foreground hover:bg-surface-2"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-1 min-h-0">
+        {activePaper.pdfPublicUrl ? (
+          <PdfReaderPane
+            fileUrl={activePaper.pdfPublicUrl}
+            documentFileName={activePaper.fileName}
+            scrollRef={pdfScrollRef}
+            activePageSectionId={activeSection}
+            onTextSelection={handleTextSelection}
+            userSelection={userSelection}
+            onExplainSelection={handleUserExplain}
+            onChatSelection={handleUserChat}
+            onClearSelection={handleClearSelection}
+            onDocumentLoaded={setPdfNumPages}
+          />
+        ) : (
+          <PDFPane
+            sections={sections}
+            documentFileName={activePaper.fileName}
+            pageCount={activePaper.pageCount}
+            activeSection={activeSection}
+            activeHighlight={activeHighlight}
+            onHighlightClick={handleHighlightClick}
+            onTextSelection={handleTextSelection}
+            userSelection={userSelection}
+            onExplainSelection={handleUserExplain}
+            onChatSelection={handleUserChat}
+            onClearSelection={handleClearSelection}
+            onScrollSection={handleScrollSection}
+            scrollRef={pdfScrollRef}
+            userHighlights={userHighlights}
+            onRemoveHighlight={handleRemoveHighlight}
+          />
+        )}
         <SidePanel
           selectionPreview={selectionPreview}
           paperContext={paperContext}
@@ -456,7 +486,13 @@ const Index = () => {
           archTitleFromApi={archTitleFromApi}
           archLoading={archLoading}
           archError={archError}
+          paperId={paperId}
+          architectureFallbackNodes={architectureFallbackNodes}
+          architectureFallbackTitle={activePaper.architectureFallbackTitle}
+          chatWelcomeMessage={activePaper.chatWelcomeMessage}
+          chatSuggestions={activePaper.chatSuggestions}
         />
+        </div>
       </div>
     </div>
   );

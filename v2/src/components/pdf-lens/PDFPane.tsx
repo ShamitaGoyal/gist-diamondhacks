@@ -21,6 +21,10 @@ interface UserHighlight {
 
 interface PDFPaneProps {
   sections: Section[];
+  /** Shown in the toolbar like a filename */
+  documentFileName: string;
+  /** e.g. 12 → "p. 1 / 12" */
+  pageCount?: number;
   activeSection: string | null;
   activeHighlight: string | null;
   onHighlightClick: (id: string, text: string) => void;
@@ -37,6 +41,8 @@ interface PDFPaneProps {
 
 const PDFPane = ({
   sections,
+  documentFileName,
+  pageCount = 12,
   activeSection,
   activeHighlight,
   onHighlightClick,
@@ -222,10 +228,12 @@ const PDFPane = ({
           <FileText className="w-3.5 h-3.5" />
         </div>
         <span className="flex-1" />
-        <span className="text-xs font-medium text-foreground">meridian_framework_paper.pdf</span>
+        <span className="text-xs font-medium text-foreground truncate max-w-[min(280px,45vw)]" title={documentFileName}>
+          {documentFileName}
+        </span>
         <span className="flex-1" />
-        <span className="text-[11px] text-text-tertiary bg-background px-2 py-0.5 rounded-full border border-border">
-          p. 1 / 12
+        <span className="text-[11px] text-text-tertiary bg-background px-2 py-0.5 rounded-full border border-border shrink-0">
+          p. 1 / {pageCount}
         </span>
       </div>
 

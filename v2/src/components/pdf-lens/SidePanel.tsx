@@ -1,5 +1,6 @@
 import { Sparkles, Network, MessageCircle } from "lucide-react";
 import type { ExplainVisualPayload } from "@/lib/pdfLensApi";
+import type { SamplePaperId } from "@/data/samplePapers";
 import ExplainTab from "./ExplainTab";
 import ArchitectureTab, { type TreeNode } from "./ArchitectureTab";
 import ChatTab from "./ChatTab";
@@ -26,6 +27,11 @@ interface SidePanelProps {
   archLoading?: boolean;
   archError?: string | null;
   paperContext: string;
+  paperId: SamplePaperId;
+  architectureFallbackNodes: TreeNode[];
+  architectureFallbackTitle: string;
+  chatWelcomeMessage: string;
+  chatSuggestions: string[];
 }
 
 const tabs = [
@@ -49,6 +55,11 @@ const SidePanel = ({
   archLoading,
   archError,
   paperContext,
+  paperId,
+  architectureFallbackNodes,
+  architectureFallbackTitle,
+  chatWelcomeMessage,
+  chatSuggestions,
 }: SidePanelProps) => {
   return (
     <div className="w-[348px] shrink-0 flex flex-col bg-surface">
@@ -87,6 +98,8 @@ const SidePanel = ({
         <ArchitectureTab
           activeSectionId={activeSectionId}
           onNodeClick={onNodeClick}
+          fallbackNodes={architectureFallbackNodes}
+          fallbackTitle={architectureFallbackTitle}
           archNodesFromApi={archNodesFromApi}
           archTitleFromApi={archTitleFromApi}
           archLoading={archLoading}
@@ -95,9 +108,12 @@ const SidePanel = ({
       )}
       {activeTab === "chat" && (
         <ChatTab
+          key={paperId}
           initialMessage={chatInitialMessage}
           onClearInitial={onClearChatInitial}
           paperContext={paperContext}
+          welcomeMessage={chatWelcomeMessage}
+          suggestions={chatSuggestions}
         />
       )}
     </div>

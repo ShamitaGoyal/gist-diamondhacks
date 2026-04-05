@@ -14,16 +14,16 @@ interface ChatTabProps {
   onClearInitial?: () => void;
   /** Flattened paper text for RAG-style prompting (server-side) */
   paperContext: string;
+  welcomeMessage: string;
+  suggestions: string[];
 }
 
-const suggestions = ["Summarize the paper", "What is the main contribution?", "Explain ODIs simply", "What should I read next?"];
-
-const ChatTab = ({ initialMessage, onClearInitial, paperContext }: ChatTabProps) => {
+const ChatTab = ({ initialMessage, onClearInitial, paperContext, welcomeMessage, suggestions }: ChatTabProps) => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
       role: "ai",
-      text: "Hi! Ask anything about this paper — I'll answer from the text on the left.",
+      text: welcomeMessage,
       time: "now",
     },
   ]);
