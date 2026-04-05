@@ -1,0 +1,19 @@
+/* React Flow edges consume lens CSS variables (updated by Style Preset). */
+.lens-flow-host .react-flow__edge-path {
+  stroke: var(--lens-flow-edge, #64748b);
+  stroke-width: var(--lens-flow-edge-width, 1.5);
+}
+
+.lens-flow-host .react-flow__connection-path {
+  stroke: var(--lens-flow-edge, #64748b);
+  stroke-width: var(--lens-flow-edge-width, 1.5);
+}
+
+.lens-flow-host.lens-flow--sketch .react-flow__edge-path {
+  stroke-dasharray: 5 6;
+  stroke-linecap: round;
+}
+
+.lens-flow-host.lens-flow--blueprint .react-flow__edge-path {
+  opacity: 0.95;
+}
