@@ -1,13 +1,16 @@
 import { Sparkles, Network, MessageCircle } from "lucide-react";
+import type { ExplainVisualPayload } from "@/lib/pdfLensApi";
 import ExplainTab from "./ExplainTab";
-import ArchitectureTab from "./ArchitectureTab";
+import ArchitectureTab, { type TreeNode } from "./ArchitectureTab";
 import ChatTab from "./ChatTab";
 
 interface SidePanelProps {
-  selectedText: string | null;
+  /** Passage text for Explain tab chrome (not highlight id) */
+  selectionPreview: string | null;
   explanation: {
     quote: string;
     visual?: React.ReactNode;
+    apiVisual?: ExplainVisualPayload | null;
     plain: string;
     followups: string[];
   } | null;
@@ -18,6 +21,11 @@ interface SidePanelProps {
   onClearChatInitial?: () => void;
   activeSectionId: string | null;
   onNodeClick: (sectionId: string) => void;
+  archNodesFromApi?: TreeNode[] | null;
+  archTitleFromApi?: string | null;
+  archLoading?: boolean;
+  archError?: string | null;
+  paperContext: string;
 }
 
 const tabs = [
@@ -27,7 +35,7 @@ const tabs = [
 ];
 
 const SidePanel = ({
-  selectedText,
+  selectionPreview,
   explanation,
   isLoading,
   activeTab,
@@ -36,6 +44,11 @@ const SidePanel = ({
   onClearChatInitial,
   activeSectionId,
   onNodeClick,
+  archNodesFromApi,
+  archTitleFromApi,
+  archLoading,
+  archError,
+  paperContext,
 }: SidePanelProps) => {
   return (
     <div className="w-[348px] shrink-0 flex flex-col bg-surface">
@@ -68,13 +81,24 @@ const SidePanel = ({
 
       {/* Content */}
       {activeTab === "explain" && (
-        <ExplainTab selectedText={selectedText} explanation={explanation} isLoading={isLoading} />
+        <ExplainTab selectionPreview={selectionPreview} explanation={explanation} isLoading={isLoading} />
       )}
       {activeTab === "architecture" && (
-        <ArchitectureTab activeSectionId={activeSectionId} onNodeClick={onNodeClick} />
+        <ArchitectureTab
+          activeSectionId={activeSectionId}
+          onNodeClick={onNodeClick}
+          archNodesFromApi={archNodesFromApi}
+          archTitleFromApi={archTitleFromApi}
+          archLoading={archLoading}
+          archError={archError}
+        />
       )}
       {activeTab === "chat" && (
-        <ChatTab initialMessage={chatInitialMessage} onClearInitial={onClearChatInitial} />
+        <ChatTab
+          initialMessage={chatInitialMessage}
+          onClearInitial={onClearChatInitial}
+          paperContext={paperContext}
+        />
       )}
     </div>
   );

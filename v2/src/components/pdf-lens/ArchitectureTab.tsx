@@ -1,24 +1,34 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { GitBranch, Asterisk, List, Share2 } from "lucide-react";
 
-interface TreeNode {
+export interface TreeNode {
   id: string;
   label: string;
   sublabel?: string;
   sectionId: string;
+  /** From AI architecture API */
+  childrenIds?: string[];
+  depth?: number;
 }
 
 const nodes: TreeNode[] = [
-  { id: "root", label: "Meridian framework", sublabel: "Abstract · Intro", sectionId: "abstract" },
-  { id: "spec", label: "Specification", sublabel: "language §3", sectionId: "spec-lang" },
-  { id: "content", label: "Content · Layout", sublabel: "Composition", sectionId: "intro" },
-  { id: "stake", label: "Three stakeholders", sublabel: "§4", sectionId: "stakeholders" },
-  { id: "malleable", label: "Malleable ODIs", sublabel: "§2", sectionId: "what-odi" },
-  { id: "what", label: "What are ODIs?", sublabel: "§1–2", sectionId: "what-odi" },
-  { id: "tools", label: "Open-source tools", sublabel: "§5", sectionId: "tools" },
-  { id: "impl", label: "Implementation", sublabel: "§6", sectionId: "tools" },
-  { id: "eval", label: "Evaluation", sublabel: "§7", sectionId: "tools" },
-  { id: "conclusion", label: "Conclusion", sublabel: "", sectionId: "tools" },
+  {
+    id: "root",
+    label: "Meridian framework",
+    sublabel: "Abstract · Intro",
+    sectionId: "abstract",
+    depth: 0,
+    childrenIds: ["spec", "content"],
+  },
+  { id: "spec", label: "Specification", sublabel: "language §3", sectionId: "spec-lang", depth: 1, childrenIds: ["stake"] },
+  { id: "content", label: "Content · Layout", sublabel: "Composition", sectionId: "intro", depth: 1, childrenIds: ["stake"] },
+  { id: "stake", label: "Three stakeholders", sublabel: "§4", sectionId: "stakeholders", depth: 2, childrenIds: ["malleable", "what", "tools"] },
+  { id: "malleable", label: "Malleable ODIs", sublabel: "§2", sectionId: "what-odi", depth: 3, childrenIds: ["impl"] },
+  { id: "what", label: "What are ODIs?", sublabel: "§1–2", sectionId: "what-odi", depth: 3, childrenIds: [] },
+  { id: "tools", label: "Open-source tools", sublabel: "§5", sectionId: "tools", depth: 3, childrenIds: ["eval"] },
+  { id: "impl", label: "Implementation", sublabel: "§6", sectionId: "tools", depth: 4, childrenIds: ["conclusion"] },
+  { id: "eval", label: "Evaluation", sublabel: "§7", sectionId: "tools", depth: 4, childrenIds: ["conclusion"] },
+  { id: "conclusion", label: "Conclusion", sublabel: "", sectionId: "tools", depth: 5, childrenIds: [] },
 ];
 
 type ViewMode = "tree" | "radial" | "list" | "mindmap";
@@ -33,22 +43,341 @@ const viewModes: { id: ViewMode; label: string; icon: React.ReactNode }[] = [
 interface ArchitectureTabProps {
   activeSectionId: string | null;
   onNodeClick: (sectionId: string) => void;
+  /** When set, replaces static Meridian demo graph (from /api/v2/architecture) */
+  archNodesFromApi?: TreeNode[] | null;
+  archTitleFromApi?: string | null;
+  archLoading?: boolean;
+  archError?: string | null;
 }
 
-const ArchitectureTab = ({ activeSectionId, onNodeClick }: ArchitectureTabProps) => {
+function countEdgesInMap(children: Map<string, string[]>): number {
+  let n = 0;
+  for (const ch of children.values()) n += ch.length;
+  return n;
+}
+
+/** Keep only child refs that match a real node id (model sometimes emits orphans or typos). */
+function resolveChildRef(ref: string, nodeById: Map<string, TreeNode>): string | null {
+  const r = String(ref).trim();
+  return nodeById.has(r) ? r : null;
+}
+
+/**
+ * Parent stack from outline order: same algorithm as nested headings (depth increases = child).
+ * Uses API array order (not sorted by depth) so siblings stay in document order.
+ */
+function inferOutlineChildrenMap(nodes: TreeNode[]): Map<string, string[]> {
+  const children = new Map<string, string[]>();
+  const stack: TreeNode[] = [];
+  for (const n of nodes) {
+    const d = n.depth ?? 0;
+    while (stack.length > 0 && (stack[stack.length - 1].depth ?? 0) >= d) {
+      stack.pop();
+    }
+    if (stack.length > 0) {
+      const p = stack[stack.length - 1].id;
+      if (!children.has(p)) children.set(p, []);
+      children.get(p)!.push(n.id);
+    }
+    stack.push(n);
+  }
+  return children;
+}
+
+/** Vertical tidy tree: root on top, children below, parent centered over subtree; edges read top → down. */
+function buildVerticalTreeLayout(nodes: TreeNode[]): {
+  positions: Record<string, { x: number; y: number }>;
+  edges: [string, string][];
+  width: number;
+  height: number;
+  nodeW: number;
+  nodeH: number;
+} {
+  const NODE_W = 148;
+  const NODE_H = 62;
+  const V_GAP = 48;
+  const H_GAP = 28;
+  const PAD = 36;
+
+  if (!nodes.length) {
+    return { positions: {}, edges: [], width: 400, height: 280, nodeW: NODE_W, nodeH: NODE_H };
+  }
+
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const children = new Map<string, string[]>();
+  const hasParent = new Set<string>();
+
+  for (const n of nodes) {
+    const raw = n.childrenIds || [];
+    const ch = [
+      ...new Set(
+        raw
+          .map((id) => resolveChildRef(String(id), nodeById))
+          .filter((id): id is string => id != null && nodeById.has(id))
+      ),
+    ];
+    children.set(n.id, ch);
+    for (const c of ch) hasParent.add(c);
+  }
+
+  if (countEdgesInMap(children) === 0 && nodes.length > 1) {
+    const inferred = inferOutlineChildrenMap(nodes);
+    if (countEdgesInMap(inferred) > 0) {
+      for (const n of nodes) {
+        children.set(n.id, [...(inferred.get(n.id) || [])]);
+      }
+    } else {
+      const rootId = nodes[0].id;
+      for (const n of nodes) children.set(n.id, []);
+      children.set(
+        rootId,
+        nodes.slice(1).map((x) => x.id)
+      );
+    }
+    hasParent.clear();
+    for (const n of nodes) {
+      for (const c of children.get(n.id) || []) hasParent.add(c);
+    }
+  }
+
+  let rootList = nodes.map((n) => n.id).filter((id) => !hasParent.has(id));
+  if (!rootList.length) rootList = [nodes[0].id];
+
+  const edges: [string, string][] = [];
+  for (const n of nodes) {
+    for (const c of children.get(n.id) || []) edges.push([n.id, c]);
+  }
+
+  const positions: Record<string, { x: number; y: number }> = {};
+
+  function layoutSubtree(rootId: string, startLeft: number): { left: number; right: number } {
+    const seen = new Set<string>();
+
+    function place(id: string, leftBound: number, depth: number): { left: number; right: number } {
+      if (seen.has(id)) {
+        const cx = leftBound + NODE_W / 2;
+        const y = depth * (NODE_H + V_GAP);
+        if (!(id in positions)) positions[id] = { x: cx, y };
+        return { left: leftBound, right: leftBound + NODE_W };
+      }
+      seen.add(id);
+
+      const ch = (children.get(id) || []).filter((c) => nodeById.has(c));
+      const y = depth * (NODE_H + V_GAP);
+
+      if (ch.length === 0) {
+        const cx = leftBound + NODE_W / 2;
+        positions[id] = { x: cx, y };
+        return { left: leftBound, right: leftBound + NODE_W };
+      }
+
+      let cur = leftBound;
+      const ranges: { left: number; right: number }[] = [];
+      for (const c of ch) {
+        ranges.push(place(c, cur, depth + 1));
+        cur = ranges[ranges.length - 1].right + H_GAP;
+      }
+      const l = ranges[0].left;
+      const r = ranges[ranges.length - 1].right;
+      const parentX = (l + r) / 2;
+      positions[id] = { x: parentX, y };
+      return { left: l, right: r };
+    }
+
+    return place(rootId, startLeft, 0);
+  }
+
+  let cursor = PAD;
+  for (const rid of rootList) {
+    const rg = layoutSubtree(rid, cursor);
+    cursor = rg.right + H_GAP * 4;
+  }
+
+  const placedIds = new Set(Object.keys(positions));
+  const orphans = nodes.filter((n) => !placedIds.has(n.id));
+  if (orphans.length) {
+    const maxY = Math.max(0, ...Object.values(positions).map((p) => p.y));
+    const rowY = maxY + NODE_H + V_GAP;
+    let ox = PAD;
+    for (const n of orphans) {
+      positions[n.id] = { x: ox + NODE_W / 2, y: rowY };
+      ox += NODE_W + H_GAP;
+    }
+  }
+
+  let maxX = PAD;
+  let maxY = PAD;
+  for (const p of Object.values(positions)) {
+    maxX = Math.max(maxX, p.x + NODE_W / 2 + PAD);
+    maxY = Math.max(maxY, p.y + NODE_H + PAD);
+  }
+
+  return {
+    positions,
+    edges,
+    width: Math.max(380, maxX),
+    height: Math.max(260, maxY),
+    nodeW: NODE_W,
+    nodeH: NODE_H,
+  };
+}
+
+function elbowDownPath(px: number, pyBottom: number, cx: number, cyTop: number): string {
+  const midY = pyBottom + (cyTop - pyBottom) * 0.55;
+  return `M ${px} ${pyBottom} L ${px} ${midY} L ${cx} ${midY} L ${cx} ${cyTop}`;
+}
+
+function DynamicTreeView({
+  nodes,
+  filteredIds,
+  isActive,
+  onNodeClick,
+}: {
+  nodes: TreeNode[];
+  filteredIds: Set<string>;
+  isActive: (n: TreeNode) => boolean;
+  onNodeClick: (id: string) => void;
+}) {
+  const uid = useId().replace(/:/g, "");
+  const arrowId = `arch-arrow-${uid}`;
+  const { positions, edges, width, height, nodeW, nodeH } = buildVerticalTreeLayout(nodes);
+
+  return (
+    <div className="w-full min-h-[min(52vh,440px)] flex items-start justify-center">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full max-w-full h-auto min-h-[320px]"
+        preserveAspectRatio="xMidYMin meet"
+        overflow="visible"
+      >
+      <defs>
+        <marker
+          id={arrowId}
+          markerWidth="11"
+          markerHeight="11"
+          refX="9"
+          refY="5.5"
+          orient="auto"
+          markerUnits="userSpaceOnUse"
+        >
+          <path d="M0,0 L11,5.5 L0,11 Z" fill="hsl(var(--border-strong))" />
+        </marker>
+      </defs>
+      <g className="pointer-events-none" style={{ isolation: "isolate" }}>
+        {edges.map(([from, to], i) => {
+          if (!filteredIds.has(from) || !filteredIds.has(to)) return null;
+          const f = positions[from];
+          const t = positions[to];
+          if (!f || !t) return null;
+          const d = elbowDownPath(f.x, f.y + nodeH, t.x, t.y);
+          return (
+            <path
+              key={i}
+              d={d}
+              fill="none"
+              stroke="hsl(var(--border-strong))"
+              strokeWidth={3}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              markerEnd={`url(#${arrowId})`}
+            />
+          );
+        })}
+      </g>
+      {nodes.map((node) => {
+        const pos = positions[node.id];
+        if (!pos || !filteredIds.has(node.id)) return null;
+        const active = isActive(node);
+        const nw = nodeW;
+        const nh = nodeH;
+        const isRoot = (node.depth ?? 0) === 0;
+        return (
+          <g key={node.id} className={`cursor-pointer ${active ? "node-glow" : ""}`} onClick={() => onNodeClick(node.sectionId)}>
+            <rect
+              x={pos.x - nw / 2}
+              y={pos.y}
+              width={nw}
+              height={nh}
+              rx={isRoot ? 10 : 8}
+              fill={active ? "hsl(var(--accent-mid))" : isRoot ? "hsl(var(--accent-light))" : "hsl(var(--surface))"}
+              stroke={active ? "hsl(var(--accent-dark))" : "hsl(var(--border-strong))"}
+              strokeWidth={active ? "2" : "1.5"}
+            />
+            <text
+              x={pos.x}
+              y={pos.y + 22}
+              textAnchor="middle"
+              fontSize="11"
+              fontWeight="600"
+              fill={active ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))"}
+            >
+              {node.label.length > 22 ? `${node.label.slice(0, 20)}…` : node.label}
+            </text>
+            {node.sublabel ? (
+              <text
+                x={pos.x}
+                y={pos.y + 42}
+                textAnchor="middle"
+                fontSize="9"
+                fill={active ? "hsl(var(--primary-foreground))" : "hsl(var(--text-tertiary))"}
+              >
+                {node.sublabel.slice(0, 28)}
+              </text>
+            ) : null}
+          </g>
+        );
+      })}
+      </svg>
+    </div>
+  );
+}
+
+const ArchitectureTab = ({
+  activeSectionId,
+  onNodeClick,
+  archNodesFromApi,
+  archTitleFromApi,
+  archLoading,
+  archError,
+}: ArchitectureTabProps) => {
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("tree");
+  const useApi = Boolean(archNodesFromApi?.length);
 
   const isActive = (node: TreeNode) => activeSectionId === node.sectionId;
 
+  const baseNodes = useApi ? archNodesFromApi! : nodes;
   const filtered = search
-    ? nodes.filter(n => n.label.toLowerCase().includes(search.toLowerCase()) || n.sublabel?.toLowerCase().includes(search.toLowerCase()))
-    : nodes;
+    ? baseNodes.filter(
+        (n) =>
+          n.label.toLowerCase().includes(search.toLowerCase()) ||
+          n.sublabel?.toLowerCase().includes(search.toLowerCase())
+      )
+    : baseNodes;
 
-  const filteredIds = new Set(filtered.map(n => n.id));
+  const filteredIds = new Set(filtered.map((n) => n.id));
+
+  const effectiveView: ViewMode =
+    useApi && (viewMode === "radial" || viewMode === "mindmap") ? "list" : viewMode;
 
   return (
     <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5">
+      {archTitleFromApi ? (
+        <p className="text-[11px] font-medium text-accent-dark leading-snug px-0.5">{archTitleFromApi}</p>
+      ) : null}
+      {archError ? (
+        <p className="text-[11px] text-destructive bg-destructive/10 rounded-md px-2 py-1.5">{archError}</p>
+      ) : null}
+      {archLoading ? (
+        <div className="flex items-center gap-2 text-[11px] text-text-tertiary py-2">
+          <span className="inline-flex gap-0.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent-mid animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-accent-mid animate-pulse [animation-delay:150ms]" />
+            <span className="w-1.5 h-1.5 rounded-full bg-accent-mid animate-pulse [animation-delay:300ms]" />
+          </span>
+          Mapping paper structure…
+        </div>
+      ) : null}
       <input
         type="text"
         placeholder="Search sections..."
@@ -63,11 +392,12 @@ const ArchitectureTab = ({ activeSectionId, onNodeClick }: ArchitectureTabProps)
           <button
             key={mode.id}
             onClick={() => setViewMode(mode.id)}
+            disabled={useApi && (mode.id === "radial" || mode.id === "mindmap")}
             className={`flex-1 flex flex-col items-center gap-1 py-2 px-1 rounded-md text-[10px] font-medium transition-all cursor-pointer ${
-              viewMode === mode.id
+              effectiveView === mode.id
                 ? "bg-surface border border-border shadow-sm text-foreground"
                 : "text-text-tertiary hover:text-text-secondary"
-            }`}
+            } disabled:opacity-40 disabled:cursor-not-allowed`}
           >
             {mode.icon}
             {mode.label}
@@ -76,10 +406,14 @@ const ArchitectureTab = ({ activeSectionId, onNodeClick }: ArchitectureTabProps)
       </div>
 
       <div className="flex-1">
-        {viewMode === "tree" && <TreeView nodes={filtered} filteredIds={filteredIds} isActive={isActive} onNodeClick={onNodeClick} />}
-        {viewMode === "radial" && <RadialView nodes={filtered} isActive={isActive} onNodeClick={onNodeClick} />}
-        {viewMode === "list" && <ListView nodes={filtered} isActive={isActive} onNodeClick={onNodeClick} activeSectionId={activeSectionId} />}
-        {viewMode === "mindmap" && <MindMapView nodes={filtered} isActive={isActive} onNodeClick={onNodeClick} />}
+        {effectiveView === "tree" && (
+          <DynamicTreeView nodes={filtered} filteredIds={filteredIds} isActive={isActive} onNodeClick={onNodeClick} />
+        )}
+        {effectiveView === "radial" && <RadialView nodes={filtered} isActive={isActive} onNodeClick={onNodeClick} />}
+        {effectiveView === "list" && (
+          <ListView nodes={filtered} isActive={isActive} onNodeClick={onNodeClick} activeSectionId={activeSectionId} />
+        )}
+        {effectiveView === "mindmap" && <MindMapView nodes={filtered} isActive={isActive} onNodeClick={onNodeClick} />}
       </div>
 
       <div className="flex gap-3 flex-wrap py-1">
@@ -96,73 +430,6 @@ const ArchitectureTab = ({ activeSectionId, onNodeClick }: ArchitectureTabProps)
     </div>
   );
 };
-
-// ── Tree View ──
-const treePositions: Record<string, { x: number; y: number }> = {
-  root: { x: 160, y: 30 },
-  spec: { x: 70, y: 110 },
-  content: { x: 250, y: 110 },
-  stake: { x: 160, y: 195 },
-  malleable: { x: 50, y: 280 },
-  what: { x: 160, y: 280 },
-  tools: { x: 270, y: 280 },
-  impl: { x: 100, y: 360 },
-  eval: { x: 220, y: 360 },
-  conclusion: { x: 160, y: 430 },
-};
-
-const treeEdges = [
-  ["root", "spec"], ["root", "content"],
-  ["spec", "stake"], ["content", "stake"],
-  ["stake", "malleable"], ["stake", "what"], ["stake", "tools"],
-  ["malleable", "impl"], ["tools", "eval"],
-  ["impl", "conclusion"], ["eval", "conclusion"],
-];
-
-function TreeView({ nodes, filteredIds, isActive, onNodeClick }: { nodes: TreeNode[]; filteredIds: Set<string>; isActive: (n: TreeNode) => boolean; onNodeClick: (id: string) => void }) {
-  return (
-    <svg viewBox="0 0 320 470" className="w-full">
-      {treeEdges.map(([from, to], i) => {
-        if (!filteredIds.has(from) && !filteredIds.has(to)) return null;
-        const f = treePositions[from], t = treePositions[to];
-        if (!f || !t) return null;
-        return <line key={i} x1={f.x} y1={f.y + 20} x2={t.x} y2={t.y} stroke="hsl(var(--border))" strokeWidth="1.5" />;
-      })}
-      {nodes.map((node) => {
-        const pos = treePositions[node.id];
-        if (!pos) return null;
-        const active = isActive(node);
-        const isRoot = node.id === "root" || node.id === "stake";
-        const w = isRoot ? 130 : 100;
-        const h = 40;
-
-        if (isRoot) {
-          return (
-            <g key={node.id} className={`cursor-pointer ${active ? "node-glow" : ""}`} onClick={() => onNodeClick(node.sectionId)}>
-              <ellipse cx={pos.x} cy={pos.y + 10} rx={w / 2} ry={h / 2}
-                fill={active ? "hsl(var(--accent-mid))" : "hsl(var(--surface-2))"}
-                stroke={active ? "hsl(var(--accent-dark))" : "hsl(var(--border))"}
-                strokeWidth={active ? "2" : "1.5"} />
-              <text x={pos.x} y={pos.y + 7} textAnchor="middle" fontSize="9" fontWeight="600" fill={active ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))"}>{node.label}</text>
-              {node.sublabel && <text x={pos.x} y={pos.y + 18} textAnchor="middle" fontSize="8" fill={active ? "hsl(var(--primary-foreground))" : "hsl(var(--text-tertiary))"}>{node.sublabel}</text>}
-            </g>
-          );
-        }
-
-        return (
-          <g key={node.id} className={`cursor-pointer ${active ? "node-glow" : ""}`} onClick={() => onNodeClick(node.sectionId)}>
-            <rect x={pos.x - w / 2} y={pos.y} width={w} height={h} rx={6}
-              fill={active ? "hsl(var(--accent-mid))" : "hsl(var(--surface))"}
-              stroke={active ? "hsl(var(--accent-dark))" : "hsl(var(--border))"}
-              strokeWidth={active ? "2" : "1.5"} />
-            <text x={pos.x} y={pos.y + 16} textAnchor="middle" fontSize="8.5" fontWeight="500" fill={active ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))"}>{node.label}</text>
-            {node.sublabel && <text x={pos.x} y={pos.y + 28} textAnchor="middle" fontSize="7.5" fill={active ? "hsl(var(--primary-foreground))" : "hsl(var(--text-tertiary))"}>{node.sublabel}</text>}
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
 
 // ── Radial View ──
 function RadialView({ nodes, isActive, onNodeClick }: { nodes: TreeNode[]; isActive: (n: TreeNode) => boolean; onNodeClick: (id: string) => void }) {
