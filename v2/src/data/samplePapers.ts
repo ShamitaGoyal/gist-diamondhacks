@@ -31,6 +31,8 @@ export type SamplePaper = {
   chatSuggestions: string[];
   /** Served from `v2/public`; left pane renders real PDF and extracts text for APIs. */
   pdfPublicUrl?: string;
+  /** Root node label for the per-page architecture graph when `pdfPublicUrl` is set. */
+  pdfArchitectureRootLabel?: string;
 };
 
 /** Architecture fallback when the IEEE PDF is open (one node per page, `sectionId` = `page-N`). */
@@ -119,95 +121,28 @@ export const FACIAL_PARALYSIS_ARCH_NODES: TreeNode[] = [
 export const MERIDIAN_PAPER: SamplePaper = {
   id: "meridian",
   label: "Meridian (ODI)",
-  fileName: "meridian_framework_paper.pdf",
-  pageCount: 12,
+  fileName: "meridian.pdf",
+  pageCount: 16,
+  pdfPublicUrl: "/papers/meridian.pdf",
+  pdfArchitectureRootLabel: "Meridian · overview-detail framework",
   architectureFallbackTitle: "Meridian: malleable overview-detail interfaces",
   architectureFallbackNodes: MERIDIAN_ARCH_NODES,
   chatWelcomeMessage:
-    "Hi! Ask anything about this Meridian / overview-detail paper — I'll answer from the text on the left.",
+    "Hi! Ask anything about this Meridian / overview-detail paper — I'll use the PDF text on the left.",
   chatSuggestions: [
     "Summarize the paper",
     "What is the main contribution?",
     "Explain overview-detail interfaces simply",
     "What should I read next?",
   ],
+  /** Fallback if PDF text extraction is slow or fails (APIs still get some context). */
   sections: [
     {
       id: "abstract",
-      title: "Abstract",
+      title: "Meridian (PDF)",
       paragraphs: [
         {
-          text: "We present overview-detail interfaces (ODIs) as a foundational pattern in modern information systems. ODIs support a fundamental user behavior: scanning a broad collection to identify items of interest, then examining them in depth. They appear in email clients, calendars, shopping websites, and food delivery applications.",
-          highlights: [{ text: "overview-detail interfaces (ODIs)", id: "hl-odi" }],
-        },
-      ],
-    },
-    {
-      id: "intro",
-      title: "1. Introduction",
-      paragraphs: [
-        {
-          text: "Information systems increasingly demand interfaces that balance breadth with depth. ODIs serve this need by pairing a scannable overview pane with a coordinated detail view. The challenge lies in designing these interfaces to be both expressive and adaptable across contexts.",
-          highlights: [],
-        },
-        {
-          text: "The Meridian Framework proposes a specification language that separates content, composition, and layout into distinct, composable concerns — enabling a new class of malleable, stakeholder-aware interfaces.",
-          highlights: [{ text: "The Meridian Framework proposes a specification language", id: "hl-meridian" }],
-        },
-      ],
-    },
-    {
-      id: "what-odi",
-      title: "2. What are ODIs?",
-      paragraphs: [
-        {
-          text: "An overview-detail interface presents two coordinated views: a compact overview of a collection, and a detailed view of a selected item. The overview enables rapid scanning; the detail enables deep inspection. Selection in the overview drives the detail.",
-          highlights: [],
-        },
-        {
-          text: "Malleable ODIs allow reconfiguration by multiple stakeholders without modifying the underlying data model. This separates concerns cleanly: data owners control structure, designers control presentation, users control layout preferences.",
-          highlights: [{ text: "Malleable ODIs allow reconfiguration", id: "hl-malleable" }],
-        },
-      ],
-    },
-    {
-      id: "spec-lang",
-      title: "3. The Specification Language",
-      paragraphs: [
-        {
-          text: "Meridian's specification language describes interfaces declaratively. A Meridian spec defines: (1) the data bindings connecting content to interface elements, (2) the compositional rules governing how overview and detail are assembled, and (3) the layout constraints that determine spatial arrangement.",
-          highlights: [],
-        },
-        {
-          text: "Developers define data bindings. Designers specify visual composition. End users adjust layout preferences. Each operates independently within Meridian's layered model.",
-          highlights: [],
-        },
-      ],
-    },
-    {
-      id: "stakeholders",
-      title: "4. Three Stakeholders",
-      paragraphs: [
-        {
-          text: "Meridian identifies three stakeholders with distinct, non-overlapping roles. The developer owns data and logic. The designer owns visual structure and composition. The end user owns personal layout preferences and display density.",
-          highlights: [],
-        },
-        {
-          text: "The model ensures changes by one party do not break work done by others. This is Meridian's central contribution to malleable interface design.",
-          highlights: [],
-        },
-      ],
-    },
-    {
-      id: "tools",
-      title: "5. Open-Source Tools",
-      paragraphs: [
-        {
-          text: "We release Meridian as open-source. The release includes a CLI compiler that transforms Meridian specs into runtime components, a visual editor for designers, and a browser runtime library. All tools are available at the project repository.",
-          highlights: [],
-        },
-        {
-          text: "Adoption in both research prototypes and production deployments demonstrates Meridian's practical viability across scales.",
+          text: "Meridian framework paper — overview-detail interfaces (ODI), specification language, and stakeholder roles. Full text loads from meridian.pdf once extraction completes.",
           highlights: [],
         },
       ],
@@ -221,6 +156,7 @@ export const FACIAL_PARALYSIS_PAPER: SamplePaper = {
   fileName: "Moosaei-Pourebadi-Riek-FG19.pdf",
   pageCount: 8,
   pdfPublicUrl: "/papers/Moosaei-Pourebadi-Riek-FG19.pdf",
+  pdfArchitectureRootLabel: "Moosaei et al. · facial paralysis modeling (FG’19)",
   architectureFallbackTitle: "Modeling asymmetric expressions for Bell's palsy simulators",
   architectureFallbackNodes: FACIAL_PARALYSIS_ARCH_NODES,
   chatWelcomeMessage:

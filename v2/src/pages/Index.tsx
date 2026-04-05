@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo, useEffect, type ReactNode } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect, type ReactNode, type ChangeEvent } from "react";
 import PDFPane from "@/components/pdf-lens/PDFPane";
 import PdfReaderPane from "@/components/pdf-lens/PdfReaderPane";
 import SidePanel from "@/components/pdf-lens/SidePanel";
@@ -12,7 +12,8 @@ import {
   type SamplePaperId,
   type PaperSection,
 } from "@/data/samplePapers";
-import { extractFullTextFromPdf } from "@/lib/extractPdfText";
+import { extractFullTextFromPdf, extractFullTextFromPdfBuffer } from "@/lib/extractPdfText";
+import { Upload, X, Loader2 } from "lucide-react";
 
 const ODIVisual = () => (
   <svg viewBox="0 0 280 180" className="w-full max-w-[260px]">
@@ -194,6 +195,10 @@ const Index = () => {
   const [archError, setArchError] = useState<string | null>(null);
   const [pdfNumPages, setPdfNumPages] = useState(0);
   const [pdfExtractedText, setPdfExtractedText] = useState<string | null>(null);
+  const [uploadedPdf, setUploadedPdf] = useState<{ objectUrl: string; fileName: string } | null>(null);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadSession, setUploadSession] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const highlightCounter = useRef(0);
   const pdfScrollRef = useRef<HTMLDivElement>(null);
@@ -207,28 +212,63 @@ const Index = () => {
     [sections]
   );
 
-  const paperContext =
-    activePaper.pdfPublicUrl != null ? (pdfExtractedText ?? sectionsFallbackText) : sectionsFallbackText;
+  const usePdfViewer = Boolean(uploadedPdf || activePaper.pdfPublicUrl);
+
+  const paperContext = useMemo(() => {
+    if (uploadedPdf) return pdfExtractedText ?? "";
+    if (activePaper.pdfPublicUrl != null) return pdfExtractedText ?? sectionsFallbackText;
+    return sectionsFallbackText;
+  }, [uploadedPdf, activePaper.pdfPublicUrl, pdfExtractedText, sectionsFallbackText]);
 
   const paperTextForArch = useMemo(() => paperContext.slice(0, 12000), [paperContext]);
 
   const sectionIds = useMemo(() => {
-    if (activePaper.pdfPublicUrl) {
-      const n = pdfNumPages > 0 ? pdfNumPages : activePaper.pageCount;
+    if (usePdfViewer) {
+      const fallbackPages = uploadedPdf ? 1 : activePaper.pageCount;
+      const n = pdfNumPages > 0 ? pdfNumPages : fallbackPages;
       return Array.from({ length: Math.max(1, n) }, (_, i) => `page-${i + 1}`);
     }
     return sections.map((s) => s.id);
-  }, [activePaper.pdfPublicUrl, activePaper.pageCount, pdfNumPages, sections]);
+  }, [usePdfViewer, uploadedPdf, activePaper.pageCount, pdfNumPages, sections]);
 
   const architectureFallbackNodes = useMemo(() => {
+    if (uploadedPdf) {
+      const n = pdfNumPages > 0 ? pdfNumPages : 1;
+      const label = uploadedPdf.fileName.replace(/\.pdf$/i, "").trim() || "Uploaded PDF";
+      return buildPageArchitectureNodes(n, label);
+    }
     if (activePaper.pdfPublicUrl) {
       const n = pdfNumPages > 0 ? pdfNumPages : activePaper.pageCount;
-      return buildPageArchitectureNodes(n, "Moosaei et al. · facial paralysis modeling (FG’19)");
+      const rootLabel =
+        activePaper.pdfArchitectureRootLabel ??
+        activePaper.fileName.replace(/\.pdf$/i, "").trim() ||
+        activePaper.label;
+      return buildPageArchitectureNodes(n, rootLabel);
     }
     return activePaper.architectureFallbackNodes;
-  }, [activePaper.pdfPublicUrl, activePaper.pageCount, activePaper.architectureFallbackNodes, pdfNumPages]);
+  }, [uploadedPdf, activePaper.pdfPublicUrl, activePaper.pageCount, activePaper.architectureFallbackNodes, pdfNumPages]);
+
+  const architectureFallbackTitle = uploadedPdf
+    ? `Uploaded: ${uploadedPdf.fileName}`
+    : activePaper.architectureFallbackTitle;
+
+  const chatWelcomeMessage = uploadedPdf
+    ? `Hi! Ask anything about “${uploadedPdf.fileName}” — answers use the text extracted from your PDF on the left.`
+    : activePaper.chatWelcomeMessage;
+
+  const chatSuggestions = uploadedPdf
+    ? ["Summarize this PDF", "What is the main contribution?", "Explain the methodology", "What terms should I know?"]
+    : activePaper.chatSuggestions;
+
+  const chatTabKey = uploadedPdf ? `upload-${uploadSession}` : paperId;
+
+  const pdfDisplayName = uploadedPdf?.fileName ?? activePaper.fileName;
 
   useEffect(() => {
+    setUploadedPdf((prev) => {
+      if (prev) URL.revokeObjectURL(prev.objectUrl);
+      return null;
+    });
     archFetchedRef.current = false;
     setUserHighlights([]);
     setActiveHighlight(null);
@@ -247,6 +287,7 @@ const Index = () => {
   }, [paperId]);
 
   useEffect(() => {
+    if (uploadedPdf) return;
     if (!activePaper.pdfPublicUrl) {
       setPdfExtractedText(null);
       return;
@@ -264,7 +305,7 @@ const Index = () => {
     return () => {
       cancelled = true;
     };
-  }, [activePaper.pdfPublicUrl]);
+  }, [activePaper.pdfPublicUrl, uploadedPdf]);
 
   useEffect(() => {
     archFetchedRef.current = false;
@@ -299,7 +340,49 @@ const Index = () => {
       cancelled = true;
       if (!completed) archFetchedRef.current = false;
     };
-  }, [activeTab, paperTextForArch, sectionIds, paperId]);
+  }, [activeTab, paperTextForArch, sectionIds, paperId, uploadedPdf]);
+
+  const clearUpload = useCallback(() => {
+    setUploadedPdf((prev) => {
+      if (prev) URL.revokeObjectURL(prev.objectUrl);
+      return null;
+    });
+    setPdfExtractedText(null);
+    setPdfNumPages(0);
+    setUploadSession((s) => s + 1);
+  }, []);
+
+  const onPdfFileSelected = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const input = e.target;
+      const file = input.files?.[0];
+      input.value = "";
+      if (!file) return;
+      const okType = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      if (!okType) return;
+
+      setUploadBusy(true);
+      setUploadedPdf((prev) => {
+        if (prev) URL.revokeObjectURL(prev.objectUrl);
+        return { objectUrl: URL.createObjectURL(file), fileName: file.name };
+      });
+      setUploadSession((s) => s + 1);
+      setPdfExtractedText(null);
+      setPdfNumPages(0);
+      try {
+        const buf = await file.arrayBuffer();
+        const { text, numPages } = await extractFullTextFromPdfBuffer(buf);
+        setPdfExtractedText(text);
+        setPdfNumPages(numPages);
+      } catch {
+        setPdfExtractedText("");
+        setPdfNumPages(1);
+      } finally {
+        setUploadBusy(false);
+      }
+    },
+    []
+  );
 
   const runExplain = useCallback(async (snippet: string, staticFallbackId: string | null) => {
     const trimmed = snippet.trim();
@@ -411,7 +494,7 @@ const Index = () => {
 
   const activeSection =
     activeSectionId ||
-    (!activePaper.pdfPublicUrl && activeHighlight
+    (!usePdfViewer && activeHighlight
       ? sections.find((s) => s.paragraphs.some((p) => p.highlights?.some((h) => h.id === activeHighlight)))?.id ??
         null
       : null);
@@ -419,8 +502,8 @@ const Index = () => {
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-background">
       <div className="flex flex-col w-full max-w-[1100px] h-[82vh] min-h-[580px] max-h-[800px] rounded-lg overflow-hidden border border-border-strong shadow-md">
-        <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border bg-surface-2/80">
-          <span className="text-[11px] font-medium text-text-secondary uppercase tracking-wide">Sample PDF</span>
+        <div className="shrink-0 flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border bg-surface-2/80">
+          <span className="text-[11px] font-medium text-text-secondary uppercase tracking-wide">Document</span>
           <div className="flex rounded-lg border border-border bg-background p-0.5 gap-0.5">
             {SAMPLE_PAPERS.map((p) => (
               <button
@@ -428,7 +511,7 @@ const Index = () => {
                 type="button"
                 onClick={() => setPaperId(p.id)}
                 className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors ${
-                  paperId === p.id
+                  !uploadedPdf && paperId === p.id
                     ? "bg-accent-mid text-primary-foreground shadow-sm"
                     : "text-text-secondary hover:text-foreground hover:bg-surface-2"
                 }`}
@@ -437,12 +520,44 @@ const Index = () => {
               </button>
             ))}
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            className="sr-only"
+            aria-label="Upload PDF"
+            onChange={onPdfFileSelected}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadBusy}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded-md border border-border bg-background text-foreground hover:bg-surface-2 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+          >
+            {uploadBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+            {uploadBusy ? "Indexing…" : "Upload PDF"}
+          </button>
+          {uploadedPdf ? (
+            <span className="inline-flex items-center gap-1 max-w-[min(220px,40vw)] rounded-md border border-accent-mid/30 bg-accent-light/40 px-2 py-1 text-[11px] text-accent-dark">
+              <span className="truncate font-medium" title={uploadedPdf.fileName}>
+                {uploadedPdf.fileName}
+              </span>
+              <button
+                type="button"
+                onClick={clearUpload}
+                className="shrink-0 p-0.5 rounded hover:bg-accent-mid/20 text-accent-dark"
+                aria-label="Remove uploaded PDF"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          ) : null}
         </div>
         <div className="flex flex-1 min-h-0">
-        {activePaper.pdfPublicUrl ? (
+        {usePdfViewer ? (
           <PdfReaderPane
-            fileUrl={activePaper.pdfPublicUrl}
-            documentFileName={activePaper.fileName}
+            fileUrl={(uploadedPdf?.objectUrl ?? activePaper.pdfPublicUrl) as string}
+            documentFileName={pdfDisplayName}
             scrollRef={pdfScrollRef}
             activePageSectionId={activeSection}
             onTextSelection={handleTextSelection}
@@ -486,11 +601,11 @@ const Index = () => {
           archTitleFromApi={archTitleFromApi}
           archLoading={archLoading}
           archError={archError}
-          paperId={paperId}
+          chatTabKey={chatTabKey}
           architectureFallbackNodes={architectureFallbackNodes}
-          architectureFallbackTitle={activePaper.architectureFallbackTitle}
-          chatWelcomeMessage={activePaper.chatWelcomeMessage}
-          chatSuggestions={activePaper.chatSuggestions}
+          architectureFallbackTitle={architectureFallbackTitle}
+          chatWelcomeMessage={chatWelcomeMessage}
+          chatSuggestions={chatSuggestions}
         />
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { getDocument } from "pdfjs-dist";
+import type { PDFDocumentProxy } from "pdfjs-dist";
 import { configurePdfWorker } from "./pdfWorker";
 
 function resolveUrl(url: string): string {
@@ -6,11 +7,7 @@ function resolveUrl(url: string): string {
   return new URL(url, window.location.origin).href;
 }
 
-/** Full document text for Chat / Architecture APIs (page markers preserved). */
-export async function extractFullTextFromPdf(url: string): Promise<{ text: string; numPages: number }> {
-  configurePdfWorker();
-  const task = getDocument({ url: resolveUrl(url) });
-  const pdf = await task.promise;
+async function extractPagesText(pdf: PDFDocumentProxy): Promise<{ text: string; numPages: number }> {
   const numPages = pdf.numPages;
   const chunks: string[] = [];
 
@@ -26,4 +23,18 @@ export async function extractFullTextFromPdf(url: string): Promise<{ text: strin
   }
 
   return { text: chunks.join("\n\n"), numPages };
+}
+
+/** Full document text for Chat / Architecture APIs (page markers preserved). */
+export async function extractFullTextFromPdf(url: string): Promise<{ text: string; numPages: number }> {
+  configurePdfWorker();
+  const pdf = await getDocument({ url: resolveUrl(url) }).promise;
+  return extractPagesText(pdf);
+}
+
+/** Same as URL path, for user-uploaded files (object URL is only for rendering). */
+export async function extractFullTextFromPdfBuffer(data: ArrayBuffer): Promise<{ text: string; numPages: number }> {
+  configurePdfWorker();
+  const pdf = await getDocument({ data: data.slice(0) }).promise;
+  return extractPagesText(pdf);
 }

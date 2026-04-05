@@ -1,6 +1,5 @@
 import { Sparkles, Network, MessageCircle } from "lucide-react";
 import type { ExplainVisualPayload } from "@/lib/pdfLensApi";
-import type { SamplePaperId } from "@/data/samplePapers";
 import ExplainTab from "./ExplainTab";
 import ArchitectureTab, { type TreeNode } from "./ArchitectureTab";
 import ChatTab from "./ChatTab";
@@ -27,7 +26,8 @@ interface SidePanelProps {
   archLoading?: boolean;
   archError?: string | null;
   paperContext: string;
-  paperId: SamplePaperId;
+  /** Stable key so Chat remounts when the document source changes (e.g. new upload). */
+  chatTabKey: string;
   architectureFallbackNodes: TreeNode[];
   architectureFallbackTitle: string;
   chatWelcomeMessage: string;
@@ -55,7 +55,7 @@ const SidePanel = ({
   archLoading,
   archError,
   paperContext,
-  paperId,
+  chatTabKey,
   architectureFallbackNodes,
   architectureFallbackTitle,
   chatWelcomeMessage,
@@ -108,7 +108,7 @@ const SidePanel = ({
       )}
       {activeTab === "chat" && (
         <ChatTab
-          key={paperId}
+          key={chatTabKey}
           initialMessage={chatInitialMessage}
           onClearInitial={onClearChatInitial}
           paperContext={paperContext}
