@@ -35,12 +35,36 @@ def safe_json_parse(res: str):
 # ---------------------------
 async def classify(text: str):
     try:
-        res = await call_gemini(classifier_prompt(text))
-        label = res.strip().lower()
+        # 🔥 Heuristic override (guarantees timeline works)
+        if any(char.isdigit() for char in text):
+            if any(word in text.lower() for word in ["year", "evolved", "timeline", "from", "to"]):
+                return "timeline"
 
-        # normalize output
-        if "data" in label:
-            return "data_sketch"
+        res = await call_gemini(classifier_prompt(text))
+        print("Classifier RAW TEXT:", res)
+
+        parsed = safe_json_parse(res)
+
+        # ✅ Case 1: JSON response
+        if isinstance(parsed, dict) and "best" in parsed:
+            return parsed["best"]
+
+        # ✅ Case 2: Plain text response (THIS IS YOUR CURRENT CASE)
+        if isinstance(res, str):
+            label = res.strip().lower()
+
+            if "timeline" in label:
+                return "timeline"
+            elif "data" in label:
+                return "data_sketch"
+            elif "process" in label:
+                return "process"
+            elif "comparison" in label:
+                return "comparison"
+            elif "argument" in label:
+                return "argument"
+
+        # fallback
         return "concept_map"
 
     except Exception as e:
@@ -126,3 +150,88 @@ async def generate_explanation(text: str):
     except Exception as e:
         print("Explanation error:", e)
         return "Explanation unavailable."
+    
+# ---------------------------
+# TIMELINE GENERATOR
+# ---------------------------
+
+async def generate_timeline(text: str):
+    prompt = f"""
+Extract a timeline.
+
+Return JSON:
+{{
+  "events": [
+    {{"time": "year or step", "event": "description"}}
+  ]
+}}
+
+Text:
+{text}
+"""
+    res = await call_gemini(prompt)
+    return safe_json_parse(res)
+
+# ---------------------------
+# COMPARISON GENERATOR
+# ---------------------------
+
+async def generate_comparison(text: str):
+    prompt = f"""
+Extract comparison data.
+
+Return JSON:
+{{
+  "labels": ["A", "B"],
+  "values": [10, 20]
+}}
+
+Text:
+{text}
+"""
+    res = await call_gemini(prompt)
+    return safe_json_parse(res) 
+
+# ---------------------------
+# PROCESS FLOW GENERATOR
+# ---------------------------
+
+async def generate_process_flow(text: str):
+    prompt = f"""
+Extract steps in order.
+
+Return JSON:
+{{
+  "steps": [
+    "step 1",
+    "step 2"
+  ]
+}}
+
+Text:
+{text}
+"""
+    res = await call_gemini(prompt)
+    return safe_json_parse(res)
+
+# ---------------------------
+# ARGUMENT TREE GENERATOR
+# ---------------------------
+
+async def generate_argument_tree(text: str):
+    prompt = f"""
+Extract argument structure.
+
+Return JSON:
+{{
+  "claim": "...",
+  "supports": ["..."],
+  "opposes": ["..."]
+}}
+
+Text:
+{text}
+"""
+    res = await call_gemini(prompt)
+    return safe_json_parse(res)
+

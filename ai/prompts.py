@@ -52,12 +52,29 @@ Explain this in very simple terms (2 sentences max):
 
 def classifier_prompt(text):
     return f"""
-Classify this text into ONE of:
+You are deciding the BEST visualization for understanding a piece of text.
 
-- concept_map (relationships, processes)
-- data_sketch (trends, signals, numbers)
+Analyze carefully.
 
-Return ONLY one word.
+Return ONLY valid JSON:
+
+{{
+  "concept_map": score from 0 to 1,
+  "data_sketch": score from 0 to 1,
+  "timeline": score from 0 to 1,
+  "comparison": score from 0 to 1,
+  "process": score from 0 to 1,
+  "argument": score from 0 to 1,
+  "best": "one label"
+}}
+
+Guidelines:
+- timeline → if years, dates, progression over time
+- data_sketch → if trends, signals, oscillations
+- process → step-by-step sequences
+- comparison → multiple groups being compared
+- concept_map → relationships between entities
+- argument → claims and reasoning
 
 Text:
 {text}
