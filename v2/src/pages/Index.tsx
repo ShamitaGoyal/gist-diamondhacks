@@ -9,6 +9,8 @@ import {
   SAMPLE_PAPERS,
   getPaperById,
   buildPageArchitectureNodes,
+  MERIDIAN_PDF_ARCH_NODES,
+  isLikelyMeridianPdfFileName,
   type SamplePaperId,
   type PaperSection,
 } from "@/data/samplePapers";
@@ -152,10 +154,16 @@ function mapArchApiToTreeNodes(apiNodes: ArchApiNode[], allowedSectionIds: strin
   return apiNodes.map((n, i) => {
     const sid = n.sectionId != null ? String(n.sectionId) : "";
     const sectionId = allowedSectionIds.includes(sid) ? sid : allowedSectionIds[i % allowedSectionIds.length] ?? allowedSectionIds[0];
+    const pageMatch = /^page-(\d+)$/.exec(sectionId);
+    const sublabel = pageMatch
+      ? `p. ${pageMatch[1]}`
+      : typeof n.depth === "number"
+        ? `depth ${n.depth}`
+        : undefined;
     return {
       id: String(n.id),
       label: String(n.label),
-      sublabel: typeof n.depth === "number" ? `depth ${n.depth}` : undefined,
+      sublabel,
       sectionId,
       childrenIds: Array.isArray(n.children) ? n.children.map(String) : [],
       depth: typeof n.depth === "number" ? n.depth : 0,
@@ -233,20 +241,36 @@ const Index = () => {
 
   const architectureFallbackNodes = useMemo(() => {
     if (uploadedPdf) {
+      if (isLikelyMeridianPdfFileName(uploadedPdf.fileName)) {
+        return MERIDIAN_PDF_ARCH_NODES;
+      }
       const n = pdfNumPages > 0 ? pdfNumPages : 1;
       const label = uploadedPdf.fileName.replace(/\.pdf$/i, "").trim() || "Uploaded PDF";
       return buildPageArchitectureNodes(n, label);
     }
     if (activePaper.pdfPublicUrl) {
+      /** Bundled Meridian PDF: curated map beats per-page list + LLM guesses. */
+      if (paperId === "meridian") {
+        return MERIDIAN_PDF_ARCH_NODES;
+      }
       const n = pdfNumPages > 0 ? pdfNumPages : activePaper.pageCount;
       const rootLabel =
         activePaper.pdfArchitectureRootLabel ??
-        activePaper.fileName.replace(/\.pdf$/i, "").trim() ||
-        activePaper.label;
+        (activePaper.fileName.replace(/\.pdf$/i, "").trim() || activePaper.label);
       return buildPageArchitectureNodes(n, rootLabel);
     }
     return activePaper.architectureFallbackNodes;
-  }, [uploadedPdf, activePaper.pdfPublicUrl, activePaper.pageCount, activePaper.architectureFallbackNodes, pdfNumPages]);
+  }, [
+    uploadedPdf,
+    paperId,
+    activePaper.pdfPublicUrl,
+    activePaper.pageCount,
+    activePaper.architectureFallbackNodes,
+    activePaper.pdfArchitectureRootLabel,
+    activePaper.fileName,
+    activePaper.label,
+    pdfNumPages,
+  ]);
 
   const architectureFallbackTitle = uploadedPdf
     ? `Uploaded: ${uploadedPdf.fileName}`
@@ -313,6 +337,13 @@ const Index = () => {
 
   useEffect(() => {
     if (activeTab !== "architecture" || archFetchedRef.current) return;
+    const useCuratedMeridianArch =
+      (paperId === "meridian" && Boolean(activePaper.pdfPublicUrl) && !uploadedPdf) ||
+      Boolean(uploadedPdf && isLikelyMeridianPdfFileName(uploadedPdf.fileName));
+    if (useCuratedMeridianArch) {
+      archFetchedRef.current = true;
+      return;
+    }
     archFetchedRef.current = true;
     let cancelled = false;
     let completed = false;
@@ -340,7 +371,7 @@ const Index = () => {
       cancelled = true;
       if (!completed) archFetchedRef.current = false;
     };
-  }, [activeTab, paperTextForArch, sectionIds, paperId, uploadedPdf]);
+  }, [activeTab, paperTextForArch, sectionIds, paperId, uploadedPdf, activePaper.pdfPublicUrl]);
 
   const clearUpload = useCallback(() => {
     setUploadedPdf((prev) => {

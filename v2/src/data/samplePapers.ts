@@ -62,26 +62,125 @@ export function buildPageArchitectureNodes(numPages: number, rootLabel: string):
   return out;
 }
 
-/** Default architecture map for the Meridian demo (matches section ids in MERIDIAN_PAPER). */
-export const MERIDIAN_ARCH_NODES: TreeNode[] = [
+/**
+ * Hand-tuned outline for the bundled Meridian UIST paper (`meridian.pdf`, ~16 pages).
+ * `sectionId` is always `page-N` so architecture taps scroll the PDF pane (`pdf-page-N`).
+ * Structure: problem/ODI → framework (layers, spec, tools) → evaluation & closing.
+ */
+export const MERIDIAN_PDF_ARCH_NODES: TreeNode[] = [
   {
-    id: "root",
-    label: "Meridian framework",
-    sublabel: "Abstract · Intro",
-    sectionId: "abstract",
+    id: "m-root",
+    label: "Meridian",
+    sublabel: "Malleable ODI framework · UIST '25",
+    sectionId: "page-1",
     depth: 0,
-    childrenIds: ["spec", "content"],
+    childrenIds: ["m-a", "m-b", "m-c"],
   },
-  { id: "spec", label: "Specification language", sublabel: "§3", sectionId: "spec-lang", depth: 1, childrenIds: ["stake"] },
-  { id: "content", label: "Content · layout · composition", sublabel: "§1–2", sectionId: "intro", depth: 1, childrenIds: ["stake"] },
-  { id: "stake", label: "Three stakeholders", sublabel: "§4", sectionId: "stakeholders", depth: 2, childrenIds: ["malleable", "what", "tools"] },
-  { id: "malleable", label: "Malleable overview-detail", sublabel: "§2", sectionId: "what-odi", depth: 3, childrenIds: ["impl"] },
-  { id: "what", label: "What are ODIs?", sublabel: "§1–2", sectionId: "what-odi", depth: 3, childrenIds: [] },
-  { id: "tools", label: "Open-source tools", sublabel: "§5", sectionId: "tools", depth: 3, childrenIds: ["eval"] },
-  { id: "impl", label: "Implementation path", sublabel: "§6", sectionId: "tools", depth: 4, childrenIds: ["conclusion"] },
-  { id: "eval", label: "Evaluation", sublabel: "§7", sectionId: "tools", depth: 4, childrenIds: ["conclusion"] },
-  { id: "conclusion", label: "Takeaways", sublabel: "", sectionId: "tools", depth: 5, childrenIds: [] },
+  {
+    id: "m-a",
+    label: "Problem & ODI context",
+    sublabel: "Motivation",
+    sectionId: "page-1",
+    depth: 1,
+    childrenIds: ["m-a1", "m-a2"],
+  },
+  {
+    id: "m-a1",
+    label: "Abstract & introduction",
+    sublabel: "p. 1",
+    sectionId: "page-1",
+    depth: 2,
+    childrenIds: [],
+  },
+  {
+    id: "m-a2",
+    label: "Overview-detail interfaces",
+    sublabel: "p. 2–3",
+    sectionId: "page-2",
+    depth: 2,
+    childrenIds: [],
+  },
+  {
+    id: "m-b",
+    label: "Meridian framework",
+    sublabel: "Spec & tooling",
+    sectionId: "page-4",
+    depth: 1,
+    childrenIds: ["m-b1", "m-b2", "m-b3", "m-b4"],
+  },
+  {
+    id: "m-b1",
+    label: "Framework overview",
+    sublabel: "p. 4",
+    sectionId: "page-4",
+    depth: 2,
+    childrenIds: [],
+  },
+  {
+    id: "m-b2",
+    label: "Layers: content · layout · composition",
+    sublabel: "p. 5–6",
+    sectionId: "page-5",
+    depth: 2,
+    childrenIds: [],
+  },
+  {
+    id: "m-b3",
+    label: "Specification language",
+    sublabel: "p. 6–8",
+    sectionId: "page-6",
+    depth: 2,
+    childrenIds: [],
+  },
+  {
+    id: "m-b4",
+    label: "Dev package & web builder",
+    sublabel: "p. 8–10",
+    sectionId: "page-8",
+    depth: 2,
+    childrenIds: [],
+  },
+  {
+    id: "m-c",
+    label: "Evaluation & wrap-up",
+    sublabel: "Study & closing",
+    sectionId: "page-11",
+    depth: 1,
+    childrenIds: ["m-c1", "m-c2", "m-c3"],
+  },
+  {
+    id: "m-c1",
+    label: "Stakeholder workflows",
+    sublabel: "p. 10–11",
+    sectionId: "page-10",
+    depth: 2,
+    childrenIds: [],
+  },
+  {
+    id: "m-c2",
+    label: "Evaluation-by-demonstration",
+    sublabel: "p. 11–12",
+    sectionId: "page-11",
+    depth: 2,
+    childrenIds: [],
+  },
+  {
+    id: "m-c3",
+    label: "Discussion · conclusion · refs",
+    sublabel: "p. 13–16",
+    sectionId: "page-13",
+    depth: 2,
+    childrenIds: [],
+  },
 ];
+
+/** @deprecated Use MERIDIAN_PDF_ARCH_NODES — kept as alias for imports */
+export const MERIDIAN_ARCH_NODES = MERIDIAN_PDF_ARCH_NODES;
+
+/** Filename heuristic so uploaded copies of the paper still get the curated map. */
+export function isLikelyMeridianPdfFileName(fileName: string): boolean {
+  return /meridian/i.test(fileName.replace(/\.pdf$/i, "").trim());
+}
 
 export const FACIAL_PARALYSIS_ARCH_NODES: TreeNode[] = [
   {
@@ -126,7 +225,7 @@ export const MERIDIAN_PAPER: SamplePaper = {
   pdfPublicUrl: "/papers/meridian.pdf",
   pdfArchitectureRootLabel: "Meridian · overview-detail framework",
   architectureFallbackTitle: "Meridian: malleable overview-detail interfaces",
-  architectureFallbackNodes: MERIDIAN_ARCH_NODES,
+  architectureFallbackNodes: MERIDIAN_PDF_ARCH_NODES,
   chatWelcomeMessage:
     "Hi! Ask anything about this Meridian / overview-detail paper — I'll use the PDF text on the left.",
   chatSuggestions: [

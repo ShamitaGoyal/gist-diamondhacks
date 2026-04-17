@@ -209,9 +209,10 @@ async def v2_architecture(req: ArchitectureRequest):
     if not API_KEY:
         raise HTTPException(503, "GEMINI_API_KEY is not configured")
     allowed = ", ".join(req.section_ids) if req.section_ids else "abstract, intro, methods, results, conclusion"
-    paper = req.paper_text[:8000]
+    paper = req.paper_text[:14000]
     prompt = f"""
 Read this academic paper text and return its section structure as JSON only (no markdown).
+Use the paper's real section and subsection titles in "label" (not generic placeholders).
 Allowed sectionId values (use the closest match per node): {allowed}
 
 Shape (fill with real values from the paper — do not copy placeholder text):
