@@ -437,7 +437,7 @@ const Index = () => {
         setExplanation({
           quote: `"${trimmed.slice(0, 120)}${trimmed.length > 120 ? "…" : ""}"`,
           plain:
-            "We couldn't reach the AI. From the repo root run `python run.py` (port 8000) and set GEMINI_API_KEY. The Vite dev server proxies /api to the backend.",
+            "We couldn't reach the AI. From the repo root run `python backend/run.py` (port 8000) and set GEMINI_API_KEY. The Vite dev server proxies /api to the backend.",
           followups: [],
         });
       }

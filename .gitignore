@@ -20,7 +20,7 @@ __pycache__/
 service-account*.json
 secrets/
 
-# Note: frontend/ and ai/ are normal project folders — nothing here ignores them.
+# Note: frontend/ and backend/ are normal project folders — nothing here ignores them.
 # If they are missing on GitHub, commit and push them (and check you are on the right branch).
 
 # Logs and debug
@@ -57,8 +57,7 @@ Desktop.ini
 *.swp
 *.swo
 
-# Optional: local VS Code settings (uncomment if you prefer not to share)
-# .vscode/
+.vscode/
 
 # Misc
 *.pem

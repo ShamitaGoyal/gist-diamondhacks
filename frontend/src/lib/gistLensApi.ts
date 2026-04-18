@@ -1,6 +1,6 @@
 /**
  * All Gemini calls go through the FastAPI backend (GEMINI_API_KEY stays server-side).
- * Dev: run `python run.py` from repo root and Vite proxies /api → :8000.
+ * Dev: run `python backend/run.py` from repo root and Vite proxies /api → :8000.
  */
 
 const base = () => (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");

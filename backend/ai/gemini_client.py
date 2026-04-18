@@ -1,9 +1,12 @@
 import os
+from pathlib import Path
+
 import httpx
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load `.env` from repository root (parent of `backend/`) so `python backend/run.py` works from any cwd.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+load_dotenv(_REPO_ROOT / ".env")
 
 API_KEY = os.getenv("GEMINI_API_KEY")
 

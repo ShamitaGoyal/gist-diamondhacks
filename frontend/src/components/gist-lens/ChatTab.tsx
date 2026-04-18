@@ -72,7 +72,7 @@ const ChatTab = ({ initialMessage, onClearInitial, paperContext, welcomeMessage,
         const aiMsg: Message = {
           id: (Date.now() + 1).toString(),
           role: "ai",
-          text: "Could not reach the reading assistant. Start the API (`python run.py` from the repo root) and ensure GEMINI_API_KEY is set.",
+          text: "Could not reach the reading assistant. Start the API (`python backend/run.py` from the repo root) and ensure GEMINI_API_KEY is set.",
           time: "now",
         };
         setMessages((prev) => [...prev, aiMsg]);

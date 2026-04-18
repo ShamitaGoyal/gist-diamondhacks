@@ -1,8 +1,11 @@
-import httpx
 import os
+from pathlib import Path
+
+import httpx
 from dotenv import load_dotenv
 
-load_dotenv()
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(_REPO_ROOT / ".env")
 
 API_KEY = os.getenv("GEMINI_API_KEY")
 
