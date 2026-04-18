@@ -20,7 +20,7 @@ __pycache__/
 service-account*.json
 secrets/
 
-# Note: v1/, v2/, and ai/ are normal project folders — nothing here ignores them.
+# Note: frontend/ and ai/ are normal project folders — nothing here ignores them.
 # If they are missing on GitHub, commit and push them (and check you are on the right branch).
 
 # Logs and debug

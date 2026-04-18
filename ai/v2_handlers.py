@@ -1,5 +1,5 @@
 """
-PDF Lens v2 — Explain / Architecture / Chat via Gemini (server-side key).
+Gist Lens v2 — Explain / Architecture / Chat via Gemini (server-side key).
 """
 import json
 from typing import Any, Literal
@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from ai.gemini_client import API_KEY, GeminiAPIError, call_gemini
 from ai.json_utils import safe_json_loads
 
-router = APIRouter(prefix="/api/v2", tags=["pdf-lens-v2"])
+router = APIRouter(prefix="/api/v2", tags=["gist-lens-v2"])
 
 
 async def _gemini_v2(prompt: str, **kwargs) -> str:
