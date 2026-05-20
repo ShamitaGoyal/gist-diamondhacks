@@ -99,7 +99,7 @@ All paths below are relative to the **repository root** (the folder that contain
 ### One-time setup (do once per clone)
 
 ```bash
-python3 -m pip install -r backend/requirements.txt
+cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && cd ..
 npm install --prefix frontend
 cp .env.example .env
 # Edit .env and set GEMINI_API_KEY=...

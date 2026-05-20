@@ -1,0 +1,868 @@
+{
+    "id": "root",
+    "label": "LLM API Failure Modes",
+    "type": "root",
+    "explanation": "A map of how LLM APIs fail in real apps—quotas, context, flaky JSON, and system design.",
+    "detail": "Six categories of production failure when building with Gemini, Claude, or OpenAI APIs. Each branch covers a distinct failure class with root causes, engineering solutions, and best practices.",
+    "children": [
+      {
+        "id": "rate",
+        "label": "Rate Limits & Quotas",
+        "type": "branch",
+        "detail": "APIs enforce per-minute and per-day caps on requests and tokens. Exceeding these breaks production apps silently or with cryptic 429 errors.",
+        "children": [
+          {
+            "id": "r1",
+            "label": "RPM/TPM limits hit in production",
+            "type": "issue",
+            "explanation": "You hit the provider’s per-minute request or token ceiling; calls fail with 429 even when the app “worked fine” in dev.",
+            "detail": "The API rejects calls once requests-per-minute or tokens-per-minute thresholds are crossed. This often happens under normal load because prompt sizes were not budgeted during development.",
+            "impact": "high",
+            "symptoms": ["429 Too Many Requests errors", "Intermittent API failures under load", "Silent feature degradation in production"],
+            "children": [
+              {
+                "id": "r1a",
+                "label": "Shared infrastructure caps",
+                "type": "cause",
+                "detail": "Cloud LLM providers throttle all tenants on shared GPU infrastructure. Your quota is a hard ceiling regardless of your actual traffic pattern.",
+                "children": []
+              },
+              {
+                "id": "r1b",
+                "label": "Token-heavy system prompts",
+                "type": "cause",
+                "detail": "Large system prompts (500+ tokens) repeated on every call consume TPM budget rapidly, leaving little room for actual user content.",
+                "children": []
+              },
+              {
+                "id": "r1c",
+                "label": "Exponential backoff with jitter",
+                "type": "fix",
+                "detail": "On receiving a 429, wait 2^n seconds before retrying (n = attempt number). Add random jitter (±20%) to prevent all clients retrying simultaneously.",
+                "code_hint": "wait = (2 ** attempt) + random(0, 1000ms)",
+                "children": []
+              },
+              {
+                "id": "r1d",
+                "label": "Request throttling queue",
+                "type": "fix",
+                "detail": "Route all outbound LLM calls through a centralized dispatcher that enforces RPM/TPM limits. Queue overflow requests rather than dropping them.",
+                "code_hint": "Use a token-bucket algorithm: refill N tokens/sec, each request costs its token count",
+                "children": []
+              },
+              {
+                "id": "r1e",
+                "label": "Compress system prompts",
+                "type": "fix",
+                "detail": "Audit and trim system prompts to their minimum effective size. Move static knowledge to retrieval (RAG) rather than injecting it on every call.",
+                "children": []
+              },
+              {
+                "id": "r1f",
+                "label": "Quota monitoring + alerting",
+                "type": "bp",
+                "detail": "Track TPM and RPM usage per minute. Alert at 70% of quota so you can throttle proactively before the hard limit cuts traffic.",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "r2",
+            "label": "Burst traffic causes 429 cascade",
+            "type": "issue",
+            "detail": "A sudden spike in user traffic fires many parallel LLM requests simultaneously, exhausting the per-minute quota in seconds and causing cascading failures across all users.",
+            "impact": "critical",
+            "symptoms": ["All users fail simultaneously", "Quota exhausted within seconds of traffic spike", "Errors cluster in time, not spread evenly"],
+            "children": [
+              {
+                "id": "r2a",
+                "label": "Unbounded parallel requests",
+                "type": "cause",
+                "detail": "Code fires Promise.all() or equivalent with N concurrent LLM calls and no concurrency limit. Under load, N scales with users and quota vanishes instantly.",
+                "children": []
+              },
+              {
+                "id": "r2b",
+                "label": "No request deduplication",
+                "type": "cause",
+                "detail": "Multiple users submitting identical or near-identical prompts each trigger a separate API call rather than sharing a cached result.",
+                "children": []
+              },
+              {
+                "id": "r2c",
+                "label": "Concurrency limiter (semaphore)",
+                "type": "fix",
+                "detail": "Wrap all LLM calls in a semaphore that caps concurrent in-flight requests. Excess requests wait in queue rather than firing immediately.",
+                "code_hint": "MAX_CONCURRENT = 5; use p-limit (Node) or asyncio.Semaphore (Python)",
+                "children": []
+              },
+              {
+                "id": "r2d",
+                "label": "Request coalescing",
+                "type": "fix",
+                "detail": "Within a short time window (50–200ms), deduplicate identical prompt hashes and return the same in-flight response to all waiters.",
+                "children": []
+              },
+              {
+                "id": "r2e",
+                "label": "Graceful degradation fallback",
+                "type": "fix",
+                "detail": "When quota is exhausted, return a cached or simplified response rather than an error. Users see degraded quality, not a broken app.",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "r3",
+            "label": "Free-tier quota exhausted mid-session",
+            "type": "issue",
+            "detail": "Free-tier API limits are low and reset on unpredictable schedules. Apps built on free tiers break for all users at once when the daily quota is hit.",
+            "impact": "medium",
+            "symptoms": ["App works in the morning, breaks in the afternoon", "No warning before failure", "Errors only appear in production not dev"],
+            "children": [
+              {
+                "id": "r3a",
+                "label": "No token budgeting per request",
+                "type": "cause",
+                "detail": "Calls are made without capping max_tokens, so a single verbose response can consume a large fraction of the daily free quota.",
+                "children": []
+              },
+              {
+                "id": "r3b",
+                "label": "Hard max_tokens per call",
+                "type": "fix",
+                "detail": "Always set max_tokens explicitly. For interactive features, 256–512 tokens is usually sufficient. Reserve larger budgets for batch/async jobs.",
+                "children": []
+              },
+              {
+                "id": "r3c",
+                "label": "Daily quota tracker with cutoff",
+                "type": "fix",
+                "detail": "Maintain a running token counter in Redis or a DB. When daily usage exceeds a soft limit, switch to cached responses or disable non-critical AI features.",
+                "children": []
+              },
+              {
+                "id": "r3d",
+                "label": "Separate dev and prod API keys",
+                "type": "bp",
+                "detail": "Use different API keys for development and production. Dev key hits quota limits safely; prod key is protected and monitored independently.",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "ctx",
+        "label": "Token & Context Limits",
+        "type": "branch",
+        "detail": "Every LLM has a maximum context window (4K–200K tokens). Exceeding it causes silent truncation, refusals, or degraded output quality. Most apps hit this earlier than expected.",
+        "children": [
+          {
+            "id": "c1",
+            "label": "Large prompts silently truncated",
+            "type": "issue",
+            "detail": "When input exceeds the context window, the model silently drops the oldest content. The response appears normal but is missing critical context — a silent correctness bug.",
+            "impact": "high",
+            "symptoms": ["Model ignores earlier instructions", "Responses lose coherence in long sessions", "No error thrown despite wrong output"],
+            "children": [
+              {
+                "id": "c1a",
+                "label": "Naive full document injection",
+                "type": "cause",
+                "detail": "Entire files, PDFs, or database records pasted directly into prompts with no size guard. Works in dev with small test docs, fails in production with real data.",
+                "children": []
+              },
+              {
+                "id": "c1b",
+                "label": "No token counting before call",
+                "type": "cause",
+                "detail": "Prompt is assembled and sent without first counting its tokens. Overflow is only discovered after a failed or truncated response.",
+                "children": []
+              },
+              {
+                "id": "c1c",
+                "label": "Pre-call token counting",
+                "type": "fix",
+                "detail": "Count tokens before every API call using the provider's tokenizer (tiktoken for OpenAI, sentencepiece for Gemini). Reject or trim prompts that exceed your budget.",
+                "code_hint": "import tiktoken; enc = tiktoken.get_encoding('cl100k_base'); len(enc.encode(prompt))",
+                "children": []
+              },
+              {
+                "id": "c1d",
+                "label": "Fixed-size overlapping chunks",
+                "type": "fix",
+                "detail": "Split documents into chunks of N tokens with M tokens of overlap between adjacent chunks. This preserves continuity across chunk boundaries.",
+                "code_hint": "chunk_size=512, overlap=64 — standard LangChain RecursiveCharacterTextSplitter defaults",
+                "children": []
+              },
+              {
+                "id": "c1e",
+                "label": "Hierarchical summarization",
+                "type": "fix",
+                "detail": "For very long documents, recursively summarize chunks, then summarize the summaries. Final summary fits in context with high information density.",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "c2",
+            "label": "Chat history grows uncontrollably",
+            "type": "issue",
+            "detail": "Multi-turn chat apps pass the full conversation history on every turn. After 20–30 exchanges the context window fills, causing the model to forget the beginning of the conversation.",
+            "impact": "high",
+            "symptoms": ["Model forgets the user's name or original task", "Errors appear after N messages regardless of content", "Later turns contradict earlier ones"],
+            "children": [
+              {
+                "id": "c2a",
+                "label": "Appending full history every turn",
+                "type": "cause",
+                "detail": "Every new message appends to a growing array passed wholesale to the API. Token count compounds linearly with conversation length.",
+                "children": []
+              },
+              {
+                "id": "c2b",
+                "label": "Rolling summary compression",
+                "type": "fix",
+                "detail": "Every K turns, summarize the oldest K messages into a compact paragraph. Replace those messages with the summary in the history array.",
+                "code_hint": "Trigger summarization when history token count > 0.6 * context_window",
+                "children": []
+              },
+              {
+                "id": "c2c",
+                "label": "Sliding window with pinned messages",
+                "type": "fix",
+                "detail": "Keep only the last N turns verbatim. Pin the system prompt and the first user message (which often contains the core task) so they are never evicted.",
+                "children": []
+              },
+              {
+                "id": "c2d",
+                "label": "Semantic retrieval from history",
+                "type": "fix",
+                "detail": "Store all turns as embeddings in a vector store. Each new turn retrieves the top-K most relevant prior turns rather than the most recent N.",
+                "children": []
+              },
+              {
+                "id": "c2e",
+                "label": "Conversation state in structured memory",
+                "type": "bp",
+                "detail": "Extract key facts (user preferences, decisions made, entities mentioned) into a structured JSON object updated each turn. Inject only this compact state, not raw history.",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "c3",
+            "label": "PDF/document too large for context",
+            "type": "issue",
+            "detail": "Users upload large PDFs or documents expecting full-document Q&A. The document exceeds context limits; the model either refuses, truncates, or hallucinates from partial content.",
+            "impact": "high",
+            "symptoms": ["Model answers about only the first N pages", "Hallucinated answers about content not in the document", "API refusal with context length error"],
+            "children": [
+              {
+                "id": "c3a",
+                "label": "No retrieval layer — full inject",
+                "type": "cause",
+                "detail": "Document Q&A implemented by injecting the entire document into the prompt. Works for small docs in dev; fails for any real-world PDF.",
+                "children": []
+              },
+              {
+                "id": "c3b",
+                "label": "RAG pipeline (embed + retrieve)",
+                "type": "fix",
+                "detail": "At upload: chunk document, embed each chunk, store in vector DB. At query time: embed the question, retrieve top-K relevant chunks, inject only those into the prompt.",
+                "code_hint": "pgvector (Postgres), Pinecone, Chroma, or Supabase Vector are all valid stores",
+                "children": []
+              },
+              {
+                "id": "c3c",
+                "label": "Hybrid search (BM25 + semantic)",
+                "type": "fix",
+                "detail": "Combine keyword search (BM25) with semantic vector search. Keyword search catches exact terms; semantic search catches paraphrased or conceptually related content.",
+                "children": []
+              },
+              {
+                "id": "c3d",
+                "label": "Document pre-processing pipeline",
+                "type": "bp",
+                "detail": "Before storing: extract text from PDF (pdfplumber/pymupdf), clean whitespace, split by section headings first then by token count, embed with metadata (page number, section title).",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "cache",
+        "label": "Caching & Redundant Calls",
+        "type": "branch",
+        "detail": "LLM calls are expensive (cost) and slow (latency). Many production apps make identical or near-identical calls repeatedly with no reuse strategy, burning budget unnecessarily.",
+        "children": [
+          {
+            "id": "ca1",
+            "label": "Repeated identical prompts",
+            "type": "issue",
+            "detail": "The same prompt is sent to the API multiple times — by different users, by retries, or by page refreshes. Each call costs tokens and adds 1–5 seconds of latency.",
+            "impact": "medium",
+            "symptoms": ["High API costs despite low user count", "Same question answered differently on each page refresh", "Latency spikes on repeated queries"],
+            "children": [
+              {
+                "id": "ca1a",
+                "label": "Stateless API usage pattern",
+                "type": "cause",
+                "detail": "Each request is handled in isolation. No lookup is performed before calling the API to check if this exact prompt was recently answered.",
+                "children": []
+              },
+              {
+                "id": "ca1b",
+                "label": "Exact match hash cache",
+                "type": "fix",
+                "detail": "Hash the full prompt string (SHA-256). Before calling the API, check Redis/Memcached for this hash. On hit, return cached response in <1ms. On miss, call API and cache result.",
+                "code_hint": "key = 'llm:' + sha256(model + system_prompt + user_prompt); ttl = 3600s",
+                "children": []
+              },
+              {
+                "id": "ca1c",
+                "label": "Semantic similarity cache",
+                "type": "fix",
+                "detail": "Embed the incoming prompt. Query a vector store for cached prompts with cosine similarity > 0.95. If found, return that cached response — the prompts are semantically equivalent.",
+                "code_hint": "Use pgvector or Redis with vector extension; embed with the same model used at ingest",
+                "children": []
+              },
+              {
+                "id": "ca1d",
+                "label": "Cache warming for predictable queries",
+                "type": "bp",
+                "detail": "Identify your top 20 most common prompts (from logs). Pre-generate and cache their responses at deploy time so the first user never waits.",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "ca2",
+            "label": "Expensive calls with no output reuse",
+            "type": "issue",
+            "detail": "Complex multi-step generations (reports, summaries, structured extractions) are regenerated on every request even when the underlying data has not changed.",
+            "impact": "high",
+            "symptoms": ["Report generation takes 30s+ on every load", "API costs scale with page views not with data changes", "Identical reports generated for different users"],
+            "children": [
+              {
+                "id": "ca2a",
+                "label": "Generation tied to request lifecycle",
+                "type": "cause",
+                "detail": "LLM generation happens inline per HTTP request. There is no background job, no materialized output store, and no concept of output staleness.",
+                "children": []
+              },
+              {
+                "id": "ca2b",
+                "label": "Async generation with materialized cache",
+                "type": "fix",
+                "detail": "Decouple generation from serving. A background job generates the output and stores it. API endpoint reads from the store. Users get instant response; generation runs asynchronously.",
+                "code_hint": "Queue with BullMQ/Celery → generate → store in Postgres/S3 → serve from store",
+                "children": []
+              },
+              {
+                "id": "ca2c",
+                "label": "Content-hash invalidation",
+                "type": "fix",
+                "detail": "Cache outputs keyed by a hash of their input data (not time). Re-generate only when input data changes, not on a fixed schedule.",
+                "code_hint": "cache_key = sha256(source_document_id + document_updated_at)",
+                "children": []
+              },
+              {
+                "id": "ca2d",
+                "label": "TTL tuned to content volatility",
+                "type": "bp",
+                "detail": "Set cache TTL based on how often the underlying data changes. FAQ answers: 24h. News summaries: 1h. Live data analysis: 5min. Never use the same TTL for everything.",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "nd",
+        "label": "Non-Deterministic Outputs",
+        "type": "branch",
+        "detail": "LLMs are probabilistic — the same prompt can return different content, structure, or format on each call. This breaks any downstream code that parses or relies on output structure.",
+        "children": [
+          {
+            "id": "n1",
+            "label": "JSON output breaks parsing",
+            "type": "issue",
+            "detail": "The model returns JSON wrapped in markdown code fences, with trailing commas, missing quotes, or extra commentary. Standard JSON.parse() throws and the feature breaks.",
+            "impact": "critical",
+            "symptoms": ["SyntaxError: Unexpected token in JSON.parse()", "Intermittent parsing failures (not consistent)", "Model sometimes returns JSON, sometimes prose"],
+            "children": [
+              {
+                "id": "n1a",
+                "label": "No output format constraint",
+                "type": "cause",
+                "detail": "The prompt asks for JSON but does not specify the exact schema, does not forbid markdown fences, and does not set temperature=0. The model complies loosely.",
+                "children": []
+              },
+              {
+                "id": "n1b",
+                "label": "Strict JSON schema in system prompt",
+                "type": "fix",
+                "detail": "Include the exact JSON schema in the system prompt with field names, types, and an example. Explicitly instruct: 'Return only valid JSON. No markdown. No explanation.'",
+                "code_hint": "system: 'Return ONLY this JSON: {\"name\": string, \"score\": number} — no other text'",
+                "children": []
+              },
+              {
+                "id": "n1c",
+                "label": "Defensive JSON extraction",
+                "type": "fix",
+                "detail": "Strip markdown fences before parsing. Use a regex to extract the first {...} or [...] block from the response. Fall back gracefully if extraction fails.",
+                "code_hint": "response.replace(/```json|```/g, '').trim(); or match(/{[\\s\\S]*}/)",
+                "children": []
+              },
+              {
+                "id": "n1d",
+                "label": "Provider structured output mode",
+                "type": "fix",
+                "detail": "Use the provider's native structured output feature (OpenAI response_format: json_object, Gemini response_schema) which constrains the model at the decoding level — not just the prompt level.",
+                "children": []
+              },
+              {
+                "id": "n1e",
+                "label": "Validate with Zod or Pydantic",
+                "type": "fix",
+                "detail": "After parsing JSON, validate it against a typed schema. If validation fails, log the raw response and retry with the validation error as additional context in the next prompt.",
+                "code_hint": "z.object({name: z.string(), score: z.number()}).safeParse(parsed)",
+                "children": []
+              },
+              {
+                "id": "n1f",
+                "label": "Set temperature=0 for structured calls",
+                "type": "bp",
+                "detail": "Temperature=0 makes the model deterministic (greedy decoding). Always use this for any call that produces structured data. Reserve higher temperatures for creative generation only.",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "n2",
+            "label": "Hallucinated fields or values",
+            "type": "issue",
+            "detail": "The model invents field names not in the schema, fabricates data it was not given, or confidently returns incorrect values that pass initial validation.",
+            "impact": "critical",
+            "symptoms": ["Fields appear in output that were not in source data", "Numbers that don't match any input value", "Model says 'based on the document' but document doesn't contain that info"],
+            "children": [
+              {
+                "id": "n2a",
+                "label": "No grounding to source data",
+                "type": "cause",
+                "detail": "The model is asked to extract or analyze data but is not given strict instructions to only use what is present. It fills gaps with plausible-sounding inventions.",
+                "children": []
+              },
+              {
+                "id": "n2b",
+                "label": "Weak negative constraints",
+                "type": "cause",
+                "detail": "Prompt says 'extract data' but does not explicitly say 'if information is not present, return null — never invent values.'",
+                "children": []
+              },
+              {
+                "id": "n2c",
+                "label": "Explicit null instructions",
+                "type": "fix",
+                "detail": "Add to every extraction prompt: 'If a field cannot be found in the provided text, return null for that field. Do not infer, estimate, or guess.'",
+                "children": []
+              },
+              {
+                "id": "n2d",
+                "label": "Source citation requirement",
+                "type": "fix",
+                "detail": "Require the model to return a source_quote field alongside each extracted value — the exact text it drew the value from. Validate that the quote actually exists in the source.",
+                "code_hint": "{\"revenue\": 4200000, \"revenue_source_quote\": \"total revenue was $4.2M in Q3\"}",
+                "children": []
+              },
+              {
+                "id": "n2e",
+                "label": "Retry with error as context",
+                "type": "fix",
+                "detail": "When validation fails, pass the failed output and the validation error back to the model in the next turn. 'Your previous output had this problem: [error]. Please fix it.'",
+                "children": []
+              },
+              {
+                "id": "n2f",
+                "label": "Human review queue for low-confidence outputs",
+                "type": "bp",
+                "detail": "For high-stakes extraction (financial, medical, legal), route outputs with null fields or low confidence scores to a human review queue rather than passing them downstream automatically.",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "n3",
+            "label": "Output format varies across calls",
+            "type": "issue",
+            "detail": "The same prompt returns different output depth, verbosity, or structure on different calls. A field present in one response is missing in the next. Downstream code breaks intermittently.",
+            "impact": "high",
+            "symptoms": ["Intermittent TypeError: Cannot read property of undefined", "Dashboard works 80% of the time", "Bugs only reproducible occasionally"],
+            "children": [
+              {
+                "id": "n3a",
+                "label": "Model version not pinned",
+                "type": "cause",
+                "detail": "Using 'gpt-4' or 'gemini-pro' instead of a specific version like 'gpt-4-0125-preview'. Provider silently updates the model, changing its behavior.",
+                "children": []
+              },
+              {
+                "id": "n3b",
+                "label": "Pin exact model version",
+                "type": "fix",
+                "detail": "Always specify the full versioned model string in your API calls. Treat model version as a dependency — update it deliberately with regression testing, not automatically.",
+                "code_hint": "model: 'gpt-4-0125-preview' not 'gpt-4'; 'gemini-1.5-pro-001' not 'gemini-pro'",
+                "children": []
+              },
+              {
+                "id": "n3c",
+                "label": "Schema regression test suite",
+                "type": "fix",
+                "detail": "Write automated tests that call your actual prompts and assert that the response matches your Zod/Pydantic schema. Run these in CI on every deploy and on a nightly schedule.",
+                "children": []
+              },
+              {
+                "id": "n3d",
+                "label": "Canonical few-shot examples",
+                "type": "fix",
+                "detail": "Include 2–3 input/output examples directly in the prompt that demonstrate the exact format you expect. Few-shot examples are more reliable than instructions alone for format consistency.",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "pe",
+        "label": "Prompt Sensitivity",
+        "type": "branch",
+        "detail": "LLM outputs are highly sensitive to prompt wording. Small changes in phrasing, ordering, or structure can cause dramatically different outputs — making prompts fragile and hard to maintain at scale.",
+        "children": [
+          {
+            "id": "p1",
+            "label": "Small wording change breaks output",
+            "type": "issue",
+            "detail": "A developer edits one sentence in a prompt for a minor improvement. The output format completely changes, breaking downstream parsing. The change was not reviewed or tested.",
+            "impact": "high",
+            "symptoms": ["Feature broke after a 'minor' prompt edit", "No one knows what the prompt looked like before", "Inconsistent output across app versions"],
+            "children": [
+              {
+                "id": "p1a",
+                "label": "Prompts edited ad hoc in code",
+                "type": "cause",
+                "detail": "Prompt strings live inline in application code, edited casually without review, testing, or versioning. Changes are invisible in code reviews.",
+                "children": []
+              },
+              {
+                "id": "p1b",
+                "label": "No regression testing on prompts",
+                "type": "cause",
+                "detail": "There are no tests that call the prompt and assert on the output. A breaking change is only discovered when users report it in production.",
+                "children": []
+              },
+              {
+                "id": "p1c",
+                "label": "Prompt files in version control",
+                "type": "fix",
+                "detail": "Extract all prompts into dedicated .txt or .md files tracked in git. Prompt changes require a pull request and review like any other code change.",
+                "children": []
+              },
+              {
+                "id": "p1d",
+                "label": "Prompt versioning with fallback",
+                "type": "fix",
+                "detail": "Version prompt templates (v1, v2, v3). Deploy new versions alongside old ones. Route a percentage of traffic to the new version and compare outputs before full rollout.",
+                "children": []
+              },
+              {
+                "id": "p1e",
+                "label": "Eval suite on every prompt change",
+                "type": "fix",
+                "detail": "Maintain a set of 10–20 test inputs with expected outputs or output schemas. Run the eval suite against the new prompt before merging. Flag regressions automatically.",
+                "children": []
+              },
+              {
+                "id": "p1f",
+                "label": "Prompt change as a deployment event",
+                "type": "bp",
+                "detail": "Treat prompt changes with the same rigor as code changes: PR review, automated eval, staged rollout, and rollback plan. Prompt engineering is engineering.",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "p2",
+            "label": "Mixing tasks in one prompt",
+            "type": "issue",
+            "detail": "A single prompt asks the model to reason, extract data, and format output all at once. The model trades off between these competing goals and fails at one or more of them.",
+            "impact": "medium",
+            "symptoms": ["Model skips formatting when reasoning is complex", "Reasoning quality drops when strict format is required", "Output is sometimes JSON, sometimes prose"],
+            "children": [
+              {
+                "id": "p2a",
+                "label": "Reasoning and formatting compete",
+                "type": "cause",
+                "detail": "Models have finite 'attention' for following instructions. Asking for deep analysis AND strict JSON simultaneously causes the model to satisfy one at the expense of the other.",
+                "children": []
+              },
+              {
+                "id": "p2b",
+                "label": "Chain-of-thought then format",
+                "type": "fix",
+                "detail": "Split into two sequential calls. Call 1: 'Think through this problem step by step.' Call 2: 'Given this reasoning: [output of call 1], format your answer as: [schema].'",
+                "children": []
+              },
+              {
+                "id": "p2c",
+                "label": "Modular prompt templates",
+                "type": "fix",
+                "detail": "Build a library of single-purpose prompt templates: one for extraction, one for summarization, one for classification, one for formatting. Compose them in sequence rather than combining.",
+                "children": []
+              },
+              {
+                "id": "p2d",
+                "label": "Separate reasoning model from formatting model",
+                "type": "fix",
+                "detail": "Use a powerful reasoning model (o1, Gemini Ultra) for the thinking step and a faster, cheaper model (GPT-4o-mini, Gemini Flash) for the formatting step.",
+                "children": []
+              },
+              {
+                "id": "p2e",
+                "label": "One job per prompt — always",
+                "type": "bp",
+                "detail": "Every prompt should have exactly one primary goal. If you find yourself writing 'and then also', split the prompt. Composability beats monolithic prompts.",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "p3",
+            "label": "Inconsistent output across model versions",
+            "type": "issue",
+            "detail": "A prompt that worked perfectly with one model version produces different output after a provider update — even with the same temperature and parameters.",
+            "impact": "medium",
+            "symptoms": ["Feature regresses after provider maintenance window", "Output quality changes without any code change", "Different outputs on different API regions"],
+            "children": [
+              {
+                "id": "p3a",
+                "label": "Prompt tuned to model quirks",
+                "type": "cause",
+                "detail": "Prompts are often tuned by trial and error to exploit specific behaviors of one model version. When the model changes, those exploited behaviors disappear.",
+                "children": []
+              },
+              {
+                "id": "p3b",
+                "label": "Principle-based prompt design",
+                "type": "fix",
+                "detail": "Write prompts that rely on clear logical instructions rather than model-specific quirks. A prompt that says 'here is the schema, return only valid JSON' works across models better than one exploiting a specific behavior.",
+                "children": []
+              },
+              {
+                "id": "p3c",
+                "label": "Multi-model eval before upgrade",
+                "type": "fix",
+                "detail": "Before upgrading a model version, run your full eval suite against both the old and new version. Only upgrade when the new version matches or exceeds the old on your specific tasks.",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sys",
+        "label": "System Design Mistakes",
+        "type": "branch",
+        "detail": "Most production LLM failures are not prompt failures — they are architecture failures. Treating the LLM as the center of the system rather than one service among many creates fragile, expensive, unmaintainable apps.",
+        "children": [
+          {
+            "id": "s1",
+            "label": "Full documents sent instead of retrieved",
+            "type": "issue",
+            "detail": "The entire content of files, databases, or codebases is injected into the prompt. This is slow, expensive, and hits context limits. It also gives the model no guidance about which parts are relevant.",
+            "impact": "critical",
+            "symptoms": ["API calls cost $0.50+ each", "Response latency > 10 seconds", "Model ignores most of the injected content", "Context limit errors with any large document"],
+            "children": [
+              {
+                "id": "s1a",
+                "label": "LLM treated as a database",
+                "type": "cause",
+                "detail": "The design assumes the model will 'read' all provided content and find the relevant parts. In practice, models degrade significantly when given irrelevant context.",
+                "children": []
+              },
+              {
+                "id": "s1b",
+                "label": "No vector search layer",
+                "type": "cause",
+                "detail": "The system has no way to find relevant content — so it sends everything. The absence of a retrieval layer is the root cause, not a configuration problem.",
+                "children": []
+              },
+              {
+                "id": "s1c",
+                "label": "Full RAG pipeline",
+                "type": "fix",
+                "detail": "Ingest: chunk documents, embed each chunk, store embeddings + metadata in a vector DB. Query: embed the user question, retrieve top-K chunks (K=3–8), inject only those chunks into the prompt.",
+                "code_hint": "Ingest once. Query many. Cost: embed once at ingest + tiny retrieval query per user request.",
+                "children": []
+              },
+              {
+                "id": "s1d",
+                "label": "Metadata filtering in retrieval",
+                "type": "fix",
+                "detail": "Add structured metadata to each chunk (document_id, date, category, author). At query time, filter by metadata first, then run vector search on the filtered subset. Dramatically improves precision.",
+                "children": []
+              },
+              {
+                "id": "s1e",
+                "label": "Re-ranking retrieved chunks",
+                "type": "fix",
+                "detail": "After vector retrieval, use a cross-encoder re-ranker (Cohere Rerank, bge-reranker) to re-score and re-order chunks by actual relevance before injecting into the prompt.",
+                "children": []
+              },
+              {
+                "id": "s1f",
+                "label": "Never inject more than you need",
+                "type": "bp",
+                "detail": "Each additional chunk of context is a cost and a distraction. Inject the minimum content needed to answer the question. Measure answer quality vs. chunk count — more is not always better.",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "s2",
+            "label": "No abstraction layer between app and LLM",
+            "type": "issue",
+            "detail": "LLM API calls are made directly from business logic, frontend code, or route handlers with no service layer. The LLM provider becomes tightly coupled to the application. Switching providers or handling failures requires changes everywhere.",
+            "impact": "high",
+            "symptoms": ["API key scattered across codebase", "Switching from OpenAI to Claude requires touching 20 files", "No single place to add retry, logging, or fallback logic"],
+            "children": [
+              {
+                "id": "s2a",
+                "label": "Direct API calls from business logic",
+                "type": "cause",
+                "detail": "openai.chat.completions.create() or equivalent called directly from route handlers, React components, or domain services with no indirection layer.",
+                "children": []
+              },
+              {
+                "id": "s2b",
+                "label": "AI service abstraction layer",
+                "type": "fix",
+                "detail": "Create a single LLMService class/module. All LLM calls go through it. This is where you add retry logic, logging, cost tracking, caching, and provider switching — once, for all features.",
+                "code_hint": "class LLMService { async complete(prompt, options) { /* retry, cache, log, route */ } }",
+                "children": []
+              },
+              {
+                "id": "s2c",
+                "label": "Multi-model fallback routing",
+                "type": "fix",
+                "detail": "In the service layer, define a primary and fallback model. If the primary fails (rate limit, outage, timeout), automatically route to the fallback. Users see degraded quality, not an error.",
+                "code_hint": "try { return await callGemini(prompt) } catch { return await callGPT4(prompt) }",
+                "children": []
+              },
+              {
+                "id": "s2d",
+                "label": "Centralized prompt registry",
+                "type": "fix",
+                "detail": "The service layer loads prompts from a central registry (files, DB, config). Features reference prompts by ID, not by inline string. Prompts can be updated without deploying application code.",
+                "children": []
+              },
+              {
+                "id": "s2e",
+                "label": "Treat LLM as one service of many",
+                "type": "bp",
+                "detail": "Design your system so the LLM is replaceable. Business logic should not know which provider is being used. If you can swap Gemini for Claude by changing one config value, your abstraction is correct.",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "s3",
+            "label": "AI output drives UI rendering directly",
+            "type": "issue",
+            "detail": "The frontend renders whatever the LLM returns — treating it as a template, layout instruction, or dynamic component definition. Any output variation breaks the UI, and the LLM becomes a single point of failure for rendering.",
+            "impact": "critical",
+            "symptoms": ["UI breaks when the model adds an extra sentence", "Component crashes on unexpected field name", "Layout changes randomly across page loads"],
+            "children": [
+              {
+                "id": "s3a",
+                "label": "LLM output used as render source of truth",
+                "type": "cause",
+                "detail": "The frontend maps directly over LLM-returned arrays or uses LLM-returned strings as JSX props. There is no validation or normalization step between the API and the render layer.",
+                "children": []
+              },
+              {
+                "id": "s3b",
+                "label": "AI returns data, UI renders deterministically",
+                "type": "fix",
+                "detail": "AI outputs structured data (validated JSON). The UI is a deterministic function of that data — like any other API-driven UI. The AI never controls layout, styling, or component selection.",
+                "children": []
+              },
+              {
+                "id": "s3c",
+                "label": "Normalization layer between AI and UI",
+                "type": "fix",
+                "detail": "Add a transform/normalize function between the raw AI response and the UI. This function enforces the exact shape the UI expects, filling defaults and stripping unexpected fields.",
+                "code_hint": "function normalizeAIResponse(raw): UIModel { return { title: raw.title ?? 'Untitled', items: raw.items ?? [] } }",
+                "children": []
+              },
+              {
+                "id": "s3d",
+                "label": "Error boundaries around all AI-driven components",
+                "type": "fix",
+                "detail": "Wrap every component that renders AI output in an error boundary (React) or equivalent. A malformed AI response crashes one component, not the entire app.",
+                "children": []
+              },
+              {
+                "id": "s3e",
+                "label": "UI is never AI-dependent for structure",
+                "type": "bp",
+                "detail": "The UI should render correctly with fallback/empty data if the AI call fails entirely. AI enriches the experience; it does not define the skeleton. Design UI-first, AI-as-enhancement.",
+                "children": []
+              }
+            ]
+          },
+          {
+            "id": "s4",
+            "label": "No observability on AI calls",
+            "type": "issue",
+            "detail": "LLM calls happen in production with no logging, no latency tracking, no cost monitoring, and no record of what prompts and responses were exchanged. Debugging failures is impossible.",
+            "impact": "high",
+            "symptoms": ["Cannot reproduce user-reported AI bugs", "No idea what the app is spending on API calls", "Latency regressions go undetected for weeks"],
+            "children": [
+              {
+                "id": "s4a",
+                "label": "LLM calls treated like any HTTP call",
+                "type": "cause",
+                "detail": "Standard HTTP logging captures status codes but not prompt content, token counts, model version, or response quality. LLM-specific context is completely invisible.",
+                "children": []
+              },
+              {
+                "id": "s4b",
+                "label": "Structured LLM call logging",
+                "type": "fix",
+                "detail": "Log every LLM call: timestamp, model, prompt (truncated or hashed for PII), response, token counts (prompt + completion), latency, cost estimate, and success/failure.",
+                "code_hint": "Use LangSmith, Helicone, or build a custom logging middleware in your LLMService layer",
+                "children": []
+              },
+              {
+                "id": "s4c",
+                "label": "Cost and latency dashboards",
+                "type": "fix",
+                "detail": "Track API cost per feature, per user tier, and per day. Alert when daily spend exceeds budget. Track p50/p95/p99 latency per prompt type.",
+                "children": []
+              },
+              {
+                "id": "s4d",
+                "label": "Trace IDs linking UI to LLM calls",
+                "type": "bp",
+                "detail": "Generate a trace_id per user action. Pass it through to every LLM call made as a result. When a user reports a bug, look up trace_id to see every prompt and response in that session.",
+                "children": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
