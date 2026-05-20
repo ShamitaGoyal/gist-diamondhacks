@@ -3,3 +3,7 @@ uvicorn
 python-dotenv
 pydantic
 httpx
+postgrest>=2.0
+pymupdf
+tiktoken
+sentence-transformers
