@@ -112,15 +112,44 @@ export async function fetchArchitecture(
 
 export type ChatMessagePayload = { role: "user" | "assistant"; text: string };
 
+export type ChatSource = {
+  id: string;
+  content: string;
+  document_id?: string | null;
+  similarity?: number | null;
+};
+
+export type ChatResult = {
+  reply: string;
+  sources: ChatSource[];
+};
+
+export type ChatRequestOptions = {
+  documentId?: string | null;
+  fileName?: string | null;
+};
+
+/** Resolve Supabase document id for scoped RAG (returns null if not ingested). */
+export async function resolveDocumentId(fileName: string): Promise<string | null> {
+  const res = await fetch(
+    `${base()}/api/v2/documents/resolve?file_name=${encodeURIComponent(fileName)}`
+  );
+  if (!res.ok) return null;
+  const j = (await res.json()) as { document_id?: string };
+  return j.document_id ?? null;
+}
+
+/** RAG chat: scoped vector search on document_id/file_name → grounded Gemini. */
 export async function fetchChatReply(
-  paperContext: string,
+  message: string,
   history: ChatMessagePayload[],
-  message: string
-): Promise<string> {
-  const j = await post<{ reply: string }>("/chat", {
-    paper_context: paperContext,
-    history: history.map((m) => ({ role: m.role, text: m.text })),
+  options: ChatRequestOptions = {}
+): Promise<ChatResult> {
+  return post<ChatResult>("/chat", {
     message,
+    history: history.map((m) => ({ role: m.role, text: m.text })),
+    document_id: options.documentId ?? null,
+    file_name: options.fileName ?? null,
+    allow_global_search: false,
   });
-  return j.reply;
 }

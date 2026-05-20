@@ -12,13 +12,21 @@ interface Message {
 interface ChatTabProps {
   initialMessage?: string | null;
   onClearInitial?: () => void;
-  /** Flattened paper text for RAG-style prompting (server-side) */
-  paperContext: string;
+  /** Supabase documents.file_name for scoped vector search (e.g. meridian.pdf) */
+  documentFileName?: string | null;
+  documentId?: string | null;
   welcomeMessage: string;
   suggestions: string[];
 }
 
-const ChatTab = ({ initialMessage, onClearInitial, paperContext, welcomeMessage, suggestions }: ChatTabProps) => {
+const ChatTab = ({
+  initialMessage,
+  onClearInitial,
+  documentFileName,
+  documentId,
+  welcomeMessage,
+  suggestions,
+}: ChatTabProps) => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -60,7 +68,10 @@ const ChatTab = ({ initialMessage, onClearInitial, paperContext, welcomeMessage,
 
       try {
         const history = toPayload([...messages, userMsg]);
-        const reply = await fetchChatReply(paperContext || "No paper text loaded.", history, text);
+        const { reply } = await fetchChatReply(text, history, {
+          fileName: documentFileName ?? null,
+          documentId: documentId ?? null,
+        });
         const aiMsg: Message = {
           id: (Date.now() + 1).toString(),
           role: "ai",
@@ -80,7 +91,7 @@ const ChatTab = ({ initialMessage, onClearInitial, paperContext, welcomeMessage,
         setIsTyping(false);
       }
     },
-    [messages, paperContext, toPayload]
+    [messages, documentFileName, documentId, toPayload]
   );
 
   useEffect(() => {

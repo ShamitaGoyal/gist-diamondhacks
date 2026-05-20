@@ -4,7 +4,7 @@ import PdfReaderPane from "@/components/gist-lens/PdfReaderPane";
 import SidePanel from "@/components/gist-lens/SidePanel";
 import type { ExplainVisualPayload } from "@/lib/gistLensApi";
 import type { TreeNode } from "@/components/gist-lens/ArchitectureTab";
-import { fetchExplain, fetchArchitecture, type ArchApiNode } from "@/lib/gistLensApi";
+import { fetchExplain, fetchArchitecture, resolveDocumentId, type ArchApiNode } from "@/lib/gistLensApi";
 import {
   SAMPLE_PAPERS,
   getPaperById,
@@ -196,6 +196,7 @@ const Index = () => {
     paragraphIndex?: number;
   } | null>(null);
   const [chatInitialMessage, setChatInitialMessage] = useState<string | null>(null);
+  const [chatDocumentId, setChatDocumentId] = useState<string | null>(null);
   const [userHighlights, setUserHighlights] = useState<UserHighlight[]>([]);
   const [archNodesFromApi, setArchNodesFromApi] = useState<TreeNode[] | null>(null);
   const [archTitleFromApi, setArchTitleFromApi] = useState<string | null>(null);
@@ -277,7 +278,7 @@ const Index = () => {
     : activePaper.architectureFallbackTitle;
 
   const chatWelcomeMessage = uploadedPdf
-    ? `Hi! Ask anything about “${uploadedPdf.fileName}” — answers use the text extracted from your PDF on the left.`
+    ? `Hi! Ask anything about “${uploadedPdf.fileName}”. Answers use indexed chunks from Supabase when that PDF has been ingested; otherwise you may see a prompt to run ingest.`
     : activePaper.chatWelcomeMessage;
 
   const chatSuggestions = uploadedPdf
@@ -287,6 +288,20 @@ const Index = () => {
   const chatTabKey = uploadedPdf ? `upload-${uploadSession}` : paperId;
 
   const pdfDisplayName = uploadedPdf?.fileName ?? activePaper.fileName;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!pdfDisplayName) {
+      setChatDocumentId(null);
+      return;
+    }
+    void resolveDocumentId(pdfDisplayName).then((id) => {
+      if (!cancelled) setChatDocumentId(id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pdfDisplayName, chatTabKey]);
 
   useEffect(() => {
     setUploadedPdf((prev) => {
@@ -620,6 +635,8 @@ const Index = () => {
         <SidePanel
           selectionPreview={selectionPreview}
           paperContext={paperContext}
+          documentFileName={pdfDisplayName}
+          documentId={chatDocumentId}
           explanation={explanation}
           isLoading={isLoading}
           activeTab={activeTab}

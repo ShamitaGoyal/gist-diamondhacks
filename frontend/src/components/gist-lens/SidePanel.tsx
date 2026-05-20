@@ -26,6 +26,8 @@ interface SidePanelProps {
   archLoading?: boolean;
   archError?: string | null;
   paperContext: string;
+  documentFileName?: string | null;
+  documentId?: string | null;
   /** Stable key so Chat remounts when the document source changes (e.g. new upload). */
   chatTabKey: string;
   architectureFallbackNodes: TreeNode[];
@@ -55,6 +57,8 @@ const SidePanel = ({
   archLoading,
   archError,
   paperContext,
+  documentFileName,
+  documentId,
   chatTabKey,
   architectureFallbackNodes,
   architectureFallbackTitle,
@@ -68,7 +72,7 @@ const SidePanel = ({
         <div className="w-2 h-2 rounded-full bg-accent-mid" />
         <span className="text-xs font-semibold text-foreground tracking-tight">Gist Lens</span>
         <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide" style={{ background: 'hsl(142 70% 95%)', color: 'hsl(142 70% 18%)' }}>
-          Gemini 2.0
+          Gemini 3.5
         </span>
       </div>
 
@@ -111,7 +115,8 @@ const SidePanel = ({
           key={chatTabKey}
           initialMessage={chatInitialMessage}
           onClearInitial={onClearChatInitial}
-          paperContext={paperContext}
+          documentFileName={documentFileName}
+          documentId={documentId}
           welcomeMessage={chatWelcomeMessage}
           suggestions={chatSuggestions}
         />

@@ -1,35 +1,30 @@
 """
-Test semantic search: embed a question → match_chunks RPC → print top hits.
-
-Prerequisites:
-  1. Run backend/sql/rag_setup.sql in Supabase SQL editor
-  2. Ingest at least one PDF: .venv/bin/python ingest_pdf.py
-  3. chunks.embedding is vector(384)
+Test semantic search: embed a question → match_chunks → print top hits.
 
 Run:
     cd backend && .venv/bin/python test_search.py
 """
 
-from db.supabase import supabase
-from services.embedding_service import embed_text
+from services.search_service import search_chunks
 
-# Try a question related to your ingested PDF (Meridian is about overview-detail UIs)
 query = "What is an overview-detail interface?"
+file_name = "meridian.pdf"
 
-embedding = embed_text(query)
+from services.chat_service import resolve_document_id
 
-res = supabase.rpc(
-    "match_chunks",
-    {
-        "query_embedding": embedding,
-        "match_count": 5,
-    },
-).execute()
+doc_id = resolve_document_id(file_name=file_name)
+chunks = search_chunks(
+    query,
+    match_count=5,
+    document_id=doc_id,
+    require_document=bool(doc_id),
+)
 
-if not res.data:
-    print("No results — ingest a PDF first or check match_chunks / RLS in Supabase.")
+if not chunks:
+    print("No results — ingest meridian.pdf or lower RAG_MIN_SIMILARITY.")
 else:
-    for r in res.data:
+    print(f"document_id={doc_id}, hits={len(chunks)}")
+    for r in chunks:
         print("\n---")
         print(r["content"][:500])
         print("similarity:", round(r["similarity"], 4))

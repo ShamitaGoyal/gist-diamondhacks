@@ -61,6 +61,12 @@ class _Table:
         """e.g. .select('*').eq('file_hash', h).execute() for dedupe lookups."""
         return self._from().select(*columns)
 
+    def update(self, row: dict):
+        return self._from().update(row)
+
+    def delete(self):
+        return self._from().delete()
+
 
 class _Supabase:
     def table(self, name: str) -> _Table:

@@ -76,7 +76,7 @@ In development, Vite serves the app (default **http://localhost:8080**) and **pr
 | Config | [python-dotenv](https://pypi.org/project/python-dotenv/) — loads **`.env`** from the **repo root** (e.g. `GEMINI_API_KEY`) |
 | HTTP to Google | [httpx](https://www.python-httpx.org/) — async calls to Gemini `generateContent` |
 | Schemas | [Pydantic](https://docs.pydantic.dev/) v2 |
-| Model | **Gemini** (`gemini-2.5-flash` via REST, see `backend/ai/gemini_client.py`) |
+| Model | **Gemini** (`gemini-3.5-flash` via REST, see `backend/ai/gemini_client.py`) |
 
 **Security:** `GEMINI_API_KEY` lives only on the server. The browser talks to your FastAPI app; it never receives the key.
 

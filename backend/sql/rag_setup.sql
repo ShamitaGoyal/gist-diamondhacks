@@ -13,9 +13,12 @@ create extension if not exists vector;
 --   on chunks using hnsw (embedding vector_cosine_ops);
 
 -- 4) RPC: return top-K chunks closest to a query embedding
+--    filter_document_id = null → search all documents (global chat)
+--    filter_document_id set   → only chunks for that PDF (doc-scoped chat)
 create or replace function match_chunks(
   query_embedding vector(384),
-  match_count int default 5
+  match_count int default 5,
+  filter_document_id uuid default null
 )
 returns table (
   id uuid,
@@ -33,9 +36,10 @@ as $$
     1 - (c.embedding <=> query_embedding) as similarity
   from chunks c
   where c.embedding is not null
+    and (filter_document_id is null or c.document_id = filter_document_id)
   order by c.embedding <=> query_embedding
   limit match_count;
 $$;
 
 -- 5) Let the API call this via PostgREST rpc (service role + anon if needed)
-grant execute on function match_chunks(vector, int) to anon, authenticated, service_role;
+grant execute on function match_chunks(vector, int, uuid) to anon, authenticated, service_role;

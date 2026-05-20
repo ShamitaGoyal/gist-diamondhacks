@@ -1,5 +1,7 @@
 """
-Gist Lens v2 — Explain / Architecture / Chat via Gemini (server-side key).
+Gist Lens v2 — Explain / Architecture via Gemini (server-side key).
+
+RAG chat lives in ai/v2_chat.py.
 """
 import json
 from typing import Any, Literal
@@ -48,21 +50,6 @@ class ArchitectureResponse(BaseModel):
     nodes: list[dict]
 
 
-class ChatMessage(BaseModel):
-    role: str
-    text: str
-
-
-class ChatRequest(BaseModel):
-    paper_context: str = Field(..., max_length=24000)
-    history: list[ChatMessage] = Field(default_factory=list)
-    message: str = Field(..., min_length=1, max_length=8000)
-
-
-class ChatResponse(BaseModel):
-    reply: str
-
-
 @router.post("/explain", response_model=ExplainResponse)
 async def v2_explain(req: ExplainRequest):
     if not API_KEY:
@@ -98,10 +85,9 @@ Rules: Use **exactly one** primary format per response — fill the fields that 
 """
     raw = await _gemini_v2(
         prompt,
-        temperature=0.35,
         max_output_tokens=8192,
         response_mime_type="application/json",
-        thinking_budget=0,
+        thinking_level="low",
     )
     data = safe_json_loads(raw) if raw else None
     if not isinstance(data, dict):
@@ -187,10 +173,9 @@ Previous visual payload (JSON; may be empty):
 """
     raw = await _gemini_v2(
         prompt,
-        temperature=0.4,
         max_output_tokens=8192,
         response_mime_type="application/json",
-        thinking_budget=0,
+        thinking_level="low",
     )
     data = safe_json_loads(raw) if raw else None
     if not isinstance(data, dict):
@@ -239,10 +224,9 @@ PAPER TEXT:
 """
     raw = await _gemini_v2(
         prompt,
-        temperature=0.3,
         max_output_tokens=4096,
         response_mime_type="application/json",
-        thinking_budget=0,
+        thinking_level="low",
     )
     data = safe_json_loads(raw) if raw else None
     if not isinstance(data, dict):
@@ -254,30 +238,8 @@ PAPER TEXT:
     return ArchitectureResponse(title=title, nodes=nodes)
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def v2_chat(req: ChatRequest):
-    if not API_KEY:
-        raise HTTPException(503, "GEMINI_API_KEY is not configured")
-    history_text = "\n".join(
-        f"{'User' if m.role == 'user' else 'Assistant'}: {m.text}" for m in req.history[-20:]
-    )
-    prompt = f"""
-You are a reading assistant for an academic paper. Answer only based on this paper.
-Keep answers to 3-4 sentences. Be clear and friendly.
-
-PAPER TEXT (excerpt):
-{req.paper_context[:10000]}
-
-CONVERSATION SO FAR:
-{history_text}
-
-Now answer the user's latest message: "{req.message.replace('"', "'")}"
-"""
-    reply = await _gemini_v2(prompt, temperature=0.4, max_output_tokens=800)
-    if not reply:
-        raise HTTPException(502, "Empty model response")
-    return ChatResponse(reply=reply.strip())
-
-
 def register_v2_routes(app):
+    from ai.v2_chat import router as chat_router
+
     app.include_router(router)
+    app.include_router(chat_router)

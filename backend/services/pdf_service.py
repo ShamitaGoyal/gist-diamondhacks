@@ -1,76 +1,60 @@
+import re
+
 import fitz  # pymupdf
 import tiktoken
 
-def extract_pdf_text(pdf_path: str):
-    '''
-    It:
-    - opens PDF
-    - loops pages
-    - extracts text
-    - combines into one string
-    '''
+# RAG-friendly defaults: smaller chunks + more overlap → better retrieval similarity
+CHUNK_SIZE = 512
+CHUNK_OVERLAP = 128
+MIN_CHUNK_CHARS = 80
 
+
+def extract_pdf_text(pdf_path: str) -> str:
     doc = fitz.open(pdf_path)
-
-    full_text = ""
-
+    pages: list[str] = []
     for page in doc:
-        text = page.get_text()
-        full_text += text + "\n"
+        pages.append(page.get_text())
+    return normalize_extracted_text("\n".join(pages))
 
-    return full_text
 
+def normalize_extracted_text(text: str) -> str:
+    """Collapse PDF noise (extra spaces, broken lines) before chunking."""
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return text.strip()
 
 
 tokenizer = tiktoken.get_encoding("cl100k_base")
 
+
 def chunk_text(
-    
-    text,
-    chunk_size=800,
-    overlap=100
-):
+    text: str,
+    *,
+    chunk_size: int = CHUNK_SIZE,
+    overlap: int = CHUNK_OVERLAP,
+    min_chunk_chars: int = MIN_CHUNK_CHARS,
+) -> list[str]:
+    """
+    Split text into overlapping token windows for embedding.
 
-    '''
-    - Imagine text split into Lego blocks.
-
-    chunk_size=800
-
-    - Each chunk:
-
-    max 800 tokens
-    overlap=100
-
-    - chunks overlap slightly:
-
-    Chunk A: words 1–800
-    Chunk B: words 700–1500
-
-    Why?
-
-    Because meaning often spans boundaries.
-
-    Without overlap:
-    ❌ context gets cut awkwardly
-    '''
-
+    Smaller chunks (512) with 128-token overlap improve vector match scores vs 800/100.
+    Re-ingest PDFs after changing these defaults.
+    """
     tokens = tokenizer.encode(text)
+    if not tokens:
+        return []
 
-    chunks = []
-
+    chunks: list[str] = []
     start = 0
+    step = max(1, chunk_size - overlap)
 
     while start < len(tokens):
-
         end = start + chunk_size
-
-        chunk_tokens = tokens[start:end]
-
-        chunk_text = tokenizer.decode(chunk_tokens)
-
-        chunks.append(chunk_text)
-
-        start += chunk_size - overlap
+        piece = tokenizer.decode(tokens[start:end]).strip()
+        if len(piece) >= min_chunk_chars:
+            chunks.append(piece)
+        start += step
 
     return chunks
-
