@@ -1,4 +1,7 @@
-# <img src="./assets/logo.png" alt="Gist logo" width="44" height="44" align="middle"> Gist
+<h1>
+  <img src="./assets/logo.png" alt="Gist logo" width="33" height="33" style="vertical-align: middle;">
+  Gist
+</h1>
 
 **Gist** turns dense research into something you can explore: highlight text, see structure, and ask questions—backed by a model that never runs in the browser with your API keys.
 
